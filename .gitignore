@@ -1,9 +1,6 @@
 venv
 APIManager/model_access_config.YAML
 requirements.txt
-<<<<<<< Updated upstream
-.idea
-=======
 .idea
 /arxiv submission
 /__pycache__
@@ -12,4 +9,3 @@ requirements.txt
 *.js
 *.css
 /MetadataManager/MetadataStore/MetadataStorage
->>>>>>> Stashed changes

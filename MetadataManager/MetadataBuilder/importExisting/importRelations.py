@@ -1,11 +1,7 @@
-<<<<<<< Updated upstream
-from Code.Utilities.apiSupport.allApi import CallLLMApi
-from Code.Utilities.Retrieval_Pipeline.ManageRelations import Relations
-=======
+
 from APIManager.AllAPICaller import CallLLMApi
 from APIManager.PromptBuilder import PromptBuilder
 from MetadataManager.MetadataStore.ManageRelations import Relations
->>>>>>> Stashed changes
 import json
 
 
@@ -16,6 +12,7 @@ class indexRelations:
         self.service = service
         self.LLMObj = CallLLMApi(service)
         self.RelationObj = Relations()
+        self.PromptBuilderObj = PromptBuilder(prompt_type='extract relations')
 
     def __heuristic__(self, query: str):
         pass
@@ -23,16 +20,13 @@ class indexRelations:
 
     def __llm_based__(self, query: str):
 
-<<<<<<< Updated upstream
+
         with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\Code\Utilities\Configs\apiTemplates\taskExtractRelations.txt", "r") as promptFObj:
             prompt_str = promptFObj.read()
 
-        prompt_str = prompt_str.replace("<<SQLQuery>>", query)
-=======
         prompt_params = {"SQLQuery": query}
 
         prompt_str = self.PromptBuilderObj.build(prompt_params=prompt_params)
->>>>>>> Stashed changes
 
         relation_results_str = self.LLMObj.CallService(prompt_str)
 
@@ -54,8 +48,9 @@ class indexRelations:
         return "Added Query relations"
 
 
-appendRelationsObj = indexRelations()
+if __name__ == "__main__":
+    appendRelationsObj = indexRelations()
 
-with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\NorthWinds\DataRelations.SQL", "r") as DRFobj:
-    appendRelationsObj.extract_relations(DRFobj.read())
+    with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\NorthWinds\DataRelations.SQL", "r") as DRFobj:
+        appendRelationsObj.extract_relations(DRFobj.read())
 

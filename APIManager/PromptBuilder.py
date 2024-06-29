@@ -1,6 +1,3 @@
-<<<<<<< Updated upstream
-=======
-
 
 class UnidentifiedPromptType(Exception):
     pass
@@ -57,6 +54,3 @@ class PromptBuilder:
 
 if __name__ == "__main__":
     print(PromptBuilder("extract relations").build({"SQLQuery":""}))
-
-
->>>>>>> Stashed changes
