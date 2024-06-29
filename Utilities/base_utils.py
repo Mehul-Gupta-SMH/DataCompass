@@ -10,6 +10,9 @@ import time
 import inspect
 import hashlib
 
+class TableCreateError(Exception):
+    pass
+
 # --------------------------------------------------------------------
 def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
     """
@@ -27,9 +30,7 @@ def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
         - AttributeError: If unable to resolve the configuration value from the list of keys provided.
 
     """
-    with open(
-            r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\Code\Utilities\Configs\config_paths.yaml",
-            "r") as conf_pths:
+    with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\Utilities\config.yaml","r") as conf_pths:
         config_map = yaml.load(conf_pths, yaml.FullLoader)
 
     if config_type not in config_map.keys():
@@ -92,8 +93,8 @@ class accessDB:
             db_name (str): Name of the SQLite database.
         """
         # Construct database file path
-        base_path = "C:/Users/mehul/Documents/Projects - GIT/Agents/Decompose KG from Code/pythonProject/CoderAssistants/DBinst/"
-        directory = os.path.join(base_path,info_type)
+        base_path = get_config_val('database_config', ['database', 'base_path'])
+        directory = os.path.join(base_path, info_type)
         if not os.path.exists(directory):
             os.makedirs(directory)
 
@@ -126,7 +127,14 @@ class accessDB:
 
 
         # Execute the table creation query
-        self.cursor.execute(tableCreateQuery)
+        try:
+            self.cursor.execute(tableCreateQuery)
+        except Exception as e:
+            raise TableCreateError(f"""
+            Tried creating table {tableName}
+            Encountered Error : {str(e)}
+            """)
+
         self.connection.commit()
 
 

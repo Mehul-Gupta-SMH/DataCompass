@@ -5,9 +5,9 @@ from Utilities.base_utils import accessDB
 from MetadataManager.MetadataStore.RAGPipeline import ManageInformation
 
 vdb_metadata = {
-    "collection_name" : "tableScan",
-    "sim_metric" : "cosine",
-    "n_chunks" : 3
+    "collection_name": "tableScan",
+    "sim_metric": "cosine",
+    "n_chunks": 3
 }
 
 # Define the JSON schema
@@ -67,6 +67,7 @@ class importDD:
         self.tableColName = "tableColMetadata"
 
         self.DBObj = accessDB(info_type, dbName)
+        self.vdbObj = ManageInformation()
 
     def createTable(self):
         """
@@ -74,8 +75,8 @@ class importDD:
         """
         # Create Table Desc Table
         tableDescSchema = {
-            'tableName' : 'tableDesc',
-            'columns' : {
+            'tableName': self.tableDescName,
+            'columns': {
                 'tableName': ['TEXT', 'PRIMARY KEY'],
                 'Desc': ['TEXT', '']
             }
@@ -84,8 +85,8 @@ class importDD:
 
         # Create Table Column Metadata Table
         tableColSchema = {
-            'tableName' : 'tableColMetadata',
-            'columns' : {
+            'tableName': self.tableColName,
+            'columns': {
                 'TableName': ['TEXT', ''],
                 'ColumnName': ['TEXT', ''],
                 'DataType': ['TEXT', ''],
@@ -112,7 +113,7 @@ class importDD:
         # Create table, if not exists
         self.createTable()
 
-        with open(jsonFilePath,"r") as tableJsonFObj:
+        with open(jsonFilePath, "r") as tableJsonFObj:
             importedJsonData = json.load(tableJsonFObj)
 
         try:
@@ -121,14 +122,14 @@ class importDD:
             raise ValueError("JSON is not valid.")
 
         tableDesc = [{
-            "tableName":importedJsonData['tableName'],
-            "Desc":importedJsonData['tableDesc']
+            "tableName": importedJsonData['tableName'],
+            "Desc": importedJsonData['tableDesc']
         },]
 
         tableCol = importedJsonData['records']
 
-        print(tableDesc)
-        print(tableCol)
+        # print(tableDesc)
+        # print(tableCol)
 
         try:
             self.DBObj.post_data(self.tableDescName, tableDesc)
@@ -136,53 +137,55 @@ class importDD:
 
 
             tableMD = {
-                "TableName" : importedJsonData['tableName'],
-                "ENV" : "PROD",
-                "DB" : "NORTHWIND",
-                "TType" : "System"
+                "TableName": importedJsonData['tableName'],
+                "ENV": "PROD",
+                "DB": "NORTHWIND",
+                "TType": "System"
             }
 
             # tableMD = {**tableMD, **tableAttr}
 
             # Index table description into VectorDB
-            vdbObj = ManageInformation()
-            vdbObj.initialize_client()
-            print(vdbObj.add_new_data(importedJsonData['tableDesc'], tableMD, vdb_metadata))
+            self.vdbObj.initialize_client()
+            result = self.vdbObj.add_new_data(importedJsonData['tableDesc'], tableMD, vdb_metadata)
+            print(result)
+
         except Exception as e:
             print(str(e))
 
 
-importDataObj = importDD()
+if __name__ == "__main__":
+    importDataObj = importDD()
 
-# importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Impressions_Table.JSON")
-# importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Campaigns_Table.JSON")
-# importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Actions_Table.JSON")
+    # importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Impressions_Table.JSON")
+    # importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Campaigns_Table.JSON")
+    # importDataObj.importData(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\existingDD\Actions_Table.JSON")
 
 
-base_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\NorthWinds\DD"
+    base_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\sampleFiles\NorthWinds\DD"
 
-for files in os.listdir(base_path):
-    importDataObj.importData(os.path.join(base_path,files))
+    for files in os.listdir(base_path):
+        importDataObj.importData(os.path.join(base_path, files))
 
-# vdbObj = ManageInformation()
-# vdbObj.initialize_client()
-#
-# # query = "Write me a query that calculates all the impressions for all campaigns."
-#
-# # query = """
-# # For their annual review of the company pricing strategy, the Product Team wants to look at the products that are currently being offered for a specific price range ($20 to $50). In order to help them they asked you to provide them with a list of products with the following information:
-# #
-# # their name
-# # their unit price
-# # """
-#
-# query = """
-# Give me product wise split for each territory.
-# """
-#
-# results = vdbObj.get_data(query, vdb_metadata)
-#
-# for vals in results.values():
-#     print(f"Table Name : {vals['metadata']['TableName']}")
-#     print(vals)
-#     print()
+    # vdbObj = ManageInformation()
+    # vdbObj.initialize_client()
+    #
+    # # query = "Write me a query that calculates all the impressions for all campaigns."
+    #
+    # # query = """
+    # # For their annual review of the company pricing strategy, the Product Team wants to look at the products that are currently being offered for a specific price range ($20 to $50). In order to help them they asked you to provide them with a list of products with the following information:
+    # #
+    # # their name
+    # # their unit price
+    # # """
+    #
+    # query = """
+    # Give me product wise split for each territory.
+    # """
+    #
+    # results = vdbObj.get_data(query, vdb_metadata)
+    #
+    # for vals in results.values():
+    #     print(f"Table Name : {vals['metadata']['TableName']}")
+    #     print(vals)
+    #     print()

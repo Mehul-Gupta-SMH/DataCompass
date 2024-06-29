@@ -12,16 +12,17 @@ import uuid
 
 # --------------------------------------------------------------------------------------------
 
-from vdb import Chroma
+from MetadataManager.MetadataStore.vdb import Chroma
 from Utilities.base_utils import get_config_val
 
 # --------------------------------------------------------------------------------------------
-models_repo = get_config_val("retrieval_config",["models_repo"],True)
-indexing_configs = get_config_val("retrieval_config",["indexing"],True)
-scoring_configs = get_config_val("retrieval_config",["scoring"],True)
-vectordb_configs = get_config_val("retrieval_config",["vectordb"],True)
+models_repo = get_config_val("retrieval_config", ["models_repo"], True)
+indexing_configs = get_config_val("retrieval_config", ["indexing"], True)
+scoring_configs = get_config_val("retrieval_config", ["scoring"], True)
+vectordb_configs = get_config_val("retrieval_config", ["vectordb"], True)
 
 # --------------------------------------------------------------------------------------------
+
 
 class FilterContext:
     """
@@ -168,9 +169,9 @@ class ManageInformation:
         """
         if self.dbName == 'chroma':
             self.client = Chroma.getclient(sessions_args = {
-                                                                'path':vectordb_configs["path"],
-                                                                'host':"0.0.0.0",
-                                                                'port':"5432"
+                                                                'path': vectordb_configs["path"],
+                                                                'host': "0.0.0.0",
+                                                                'port': "5432"
                                                             },
                                            session_type = 'local')
 

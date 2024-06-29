@@ -20,6 +20,7 @@ Methods:
 
 import requests
 import yaml
+from Utilities.base_utils import get_config_val
 
 
 class CallLLMApi:
@@ -50,8 +51,11 @@ class CallLLMApi:
         Returns:
             dict: The API dictionary.
         """
+
+        model_config_path = get_config_val("model_config", ["model_config","path"])
+
         # Get model configuration from the config file
-        with open("./model_access_config.YAML","r") as model_config_FObj:
+        with open(model_config_path,"r") as model_config_FObj:
             model_config = yaml.load(model_config_FObj,yaml.FullLoader)[str(llmService).upper()]
 
         # Load API calling template

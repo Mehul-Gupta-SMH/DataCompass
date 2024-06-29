@@ -10,10 +10,8 @@ import os
 from pyvis.network import Network
 from itertools import combinations
 from iteration_utilities import unique_everseen
-from Code.Utilities.base_utils import get_config_val
+from Utilities.base_utils import get_config_val
 
-Graphfilename = r"./MetadataManager/MetadataStore/MetadataStorage"
-GraphViz = os.path.join(Graphfilename,"Relations.HTML")
 
 # --------------------------------------------------------------------------------------------
 
@@ -29,6 +27,9 @@ def getObj():
         - The function returns the loaded graph object if the file exists.
         - If the file doesn't exist, an empty graph is returned.
     """
+
+    Graphfilename = get_config_val("retrieval_config", ["relationdb","path"])
+
     if os.path.exists(Graphfilename):
         # If the file exists, load the graph from the pickle file
         with open(Graphfilename, "rb") as GObj:
@@ -56,6 +57,8 @@ def addRelations(GObj: nx.Graph, edges: dict):
     # Add edges with attributes
     for edge in edges:
         GObj.add_edge(edge[0].lower(), edge[1].lower(), JoinKeys=edge[2])
+
+    Graphfilename = get_config_val("retrieval_config", ["relationdb", "path"])
 
     # Save the graph to a pickle file
     with open(Graphfilename, 'wb') as f:
@@ -123,6 +126,7 @@ def visualizeRelations(GObj: nx.Graph):
     Returns:
         str: Message indicating that the HTML graph has been exported.
     """
+    GraphViz = get_config_val("retrieval_config", ["relationdb", "viz"])
     # Initialize a Network object
     net = Network(height="1000px", width="100%")
 

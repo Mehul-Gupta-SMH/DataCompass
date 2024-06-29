@@ -1,6 +1,7 @@
+
 from APIManager.AllAPICaller import CallLLMApi
 from APIManager.PromptBuilder import PromptBuilder
-from MetadataManager.MetadataStore.Retrieval_Pipeline.ManageRelations import Relations
+from MetadataManager.MetadataStore.ManageRelations import Relations
 import json
 
 
@@ -18,6 +19,7 @@ class indexRelations:
 
 
     def __llm_based__(self, query: str):
+
 
         with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\Code\Utilities\Configs\apiTemplates\taskExtractRelations.txt", "r") as promptFObj:
             prompt_str = promptFObj.read()

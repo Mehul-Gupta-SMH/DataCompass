@@ -1,5 +1,4 @@
 
-
 class UnidentifiedPromptType(Exception):
     pass
 
@@ -15,17 +14,17 @@ class PromptBuilder:
 
     def __prompt_type_map__(self):
         if self.prompt_type == 'extract relations':
-            prompt_path = "./Prompts/taskExtractRelations.txt"
+            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskExtractRelations.txt"
             self.expected_params = ['SQLQuery',]
 
         elif self.prompt_type == 'create data dict':
-            prompt_path = "./Prompts/taskGenerateColumnDesc.txt"
+            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskGenerateTableSummary.txt"
 
         elif self.prompt_type == 'create table summary':
-            prompt_path = "./Prompts/taskGenerateTableSummary.txt"
+            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskGenerateColumnDesc.txt"
 
         elif self.prompt_type == 'generate data dict':
-            prompt_path = "./Prompts/taskTemplate.txt"
+            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskTemplate.txt"
             self.expected_params = ['DDLQUERY','INSERETQUERY',]
 
         else:
@@ -55,5 +54,3 @@ class PromptBuilder:
 
 if __name__ == "__main__":
     print(PromptBuilder("extract relations").build({"SQLQuery":""}))
-
-
