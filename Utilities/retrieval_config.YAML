@@ -21,7 +21,7 @@ scoring:
 
 vectordb:
   name: 'chroma'
-  path: 'C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\tableMetadata'
+  path: 'C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\MetadataManager\MetadataStore\MetadataStorage\vdb'
   metadata:
     collection_name: 'tableScan'
     sim_metric: 'cosine'
@@ -33,8 +33,8 @@ vectordb:
 
 relationdb:
   name: 'networkx'
-  path: 'C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\tableMetadata\Relations.pickle'
-  viz: 'C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\tableMetadata\DataMap.html'
+  path: 'C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\MetadataManager\MetadataStore\MetadataStorage\relationsdb\Relations.pickle'
+  viz: 'C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\MetadataManager\MetadataStore\MetadataStorage\relationsdb\DataMap.html'
 
 
 # ---------------------------------------------------------

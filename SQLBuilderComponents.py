@@ -9,7 +9,7 @@ Class:
 
 import json
 from Utilities.base_utils import get_config_val, accessDB
-from MetadataManager.MetadataRetriever import RAGPipeline, ManageRelations
+from MetadataManager.MetadataStore import RAGPipeline, ManageRelations
 
 
 
@@ -47,8 +47,8 @@ class SQLBuilderSupport:
         self.join_keys = None
         self.table_metadata = {}
 
-        self.vdb_config = get_config_val("retrieval_config",["vectordb"],True)
-        self.tmddb_config = get_config_val("retrieval_config",["tableMDdb"],True)
+        self.vdb_config = get_config_val("retrieval_config", ["vectordb"],True)
+        self.tmddb_config = get_config_val("retrieval_config", ["tableMDdb"],True)
 
         self.DBObj = accessDB(self.tmddb_config['info_type'], self.tmddb_config['dbName'])
 
@@ -198,7 +198,7 @@ class SQLBuilderSupport:
         print(self.table_metadata)
 
         return {
-            "user_query" : self.user_query,
-            "table_list" : self.table_list,
-            "join_keys" : self.join_keys,
+            "user_query": self.user_query,
+            "table_list": self.table_list,
+            "join_keys": self.join_keys,
         }

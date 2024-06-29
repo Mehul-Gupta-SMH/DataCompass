@@ -1,5 +1,11 @@
+<<<<<<< Updated upstream
 from Code.Utilities.apiSupport.allApi import CallLLMApi
 from Code.Utilities.Retrieval_Pipeline.ManageRelations import Relations
+=======
+from APIManager.AllAPICaller import CallLLMApi
+from APIManager.PromptBuilder import PromptBuilder
+from MetadataManager.MetadataStore.ManageRelations import Relations
+>>>>>>> Stashed changes
 import json
 
 
@@ -17,10 +23,16 @@ class indexRelations:
 
     def __llm_based__(self, query: str):
 
+<<<<<<< Updated upstream
         with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\Decompose KG from Code\pythonProject\CoderAssistants\Code\Utilities\Configs\apiTemplates\taskExtractRelations.txt", "r") as promptFObj:
             prompt_str = promptFObj.read()
 
         prompt_str = prompt_str.replace("<<SQLQuery>>", query)
+=======
+        prompt_params = {"SQLQuery": query}
+
+        prompt_str = self.PromptBuilderObj.build(prompt_params=prompt_params)
+>>>>>>> Stashed changes
 
         relation_results_str = self.LLMObj.CallService(prompt_str)
 
