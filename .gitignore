@@ -6,6 +6,11 @@ requirements.txt
 **/__pycache__
 *.pyc
 *.js
-*.js
+!frontend/**/*.js
+!frontend/*.js
 *.css
+!frontend/**/*.css
+!frontend/*.css
+node_modules/
+frontend/dist/
 /MetadataManager/MetadataStore/MetadataStorage
