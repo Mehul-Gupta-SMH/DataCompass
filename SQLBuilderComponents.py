@@ -5,6 +5,7 @@ to provide necessary components for building SQL queries.
 Class:
     - SQLBuilderSupport: Class to support SQL query building by providing necessary components.
 """
+import functools
 import logging
 
 from rank_bm25 import BM25Okapi
@@ -13,6 +14,19 @@ from Utilities.base_utils import get_config_val, accessDB
 from MetadataManager.MetadataStore import RAGPipeline, ManageRelations
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=256)
+def _build_bm25(corpus_key: tuple) -> BM25Okapi:
+    """
+    Build and cache a BM25Okapi index for a given column corpus.
+
+    corpus_key is a tuple of token-tuples — one per column — derived from
+    the column name and description. Using an immutable key makes the result
+    cacheable with lru_cache, so the same table schema reuses the same index
+    across queries instead of rebuilding it every time.
+    """
+    return BM25Okapi([list(tokens) for tokens in corpus_key])
 
 
 
@@ -170,12 +184,13 @@ class SQLBuilderSupport:
         threshold = get_config_val("retrieval_config", ["scoring", "column_score_threshold"])
         query_tokens = self.user_query.lower().split()
 
-        # Build BM25 corpus: column name + description for each column
-        corpus = [
-            f"{col[0] or ''} {col[3] or ''}".lower().split()
+        # Build BM25 corpus: column name + description for each column.
+        # Convert to a tuple of tuples so it can be used as an lru_cache key.
+        corpus_key = tuple(
+            tuple(f"{col[0] or ''} {col[3] or ''}".lower().split())
             for col in col_tuples
-        ]
-        bm25 = BM25Okapi(corpus)
+        )
+        bm25 = _build_bm25(corpus_key)
         scores = bm25.get_scores(query_tokens)
 
         filtered = []
