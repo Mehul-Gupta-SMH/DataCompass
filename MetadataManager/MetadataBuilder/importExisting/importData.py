@@ -1,8 +1,11 @@
+import logging
 import os
 import jsonschema
 import json
 from Utilities.base_utils import accessDB
 from MetadataManager.MetadataStore.RAGPipeline import ManageInformation
+
+logger = logging.getLogger(__name__)
 
 vdb_metadata = {
     "collection_name": "tableScan",
@@ -49,9 +52,9 @@ def validate_json(json_data):
     """
     try:
         jsonschema.validate(instance=json_data, schema=schema)
-        print("JSON is valid.")
+        logger.debug("JSON schema validation passed.")
     except jsonschema.exceptions.ValidationError as e:
-        raise ValueError("JSON is not valid.")
+        raise ValueError("JSON is not valid.") from e
 
 class importDD:
     """
@@ -116,10 +119,7 @@ class importDD:
         with open(jsonFilePath, "r") as tableJsonFObj:
             importedJsonData = json.load(tableJsonFObj)
 
-        try:
-            validate_json(importedJsonData)
-        except:
-            raise ValueError("JSON is not valid.")
+        validate_json(importedJsonData)
 
         tableDesc = [{
             "tableName": importedJsonData['tableName'],
@@ -148,10 +148,10 @@ class importDD:
             # Index table description into VectorDB
             self.vdbObj.initialize_client()
             result = self.vdbObj.add_new_data(importedJsonData['tableDesc'], tableMD, vdb_metadata)
-            print(result)
+            logger.info("VDB ingest result: %s", result)
 
         except Exception as e:
-            print(str(e))
+            logger.error("Failed to import data: %s", str(e))
 
 
 if __name__ == "__main__":

@@ -5,11 +5,14 @@ to provide necessary components for building SQL queries.
 Class:
     - SQLBuilderSupport: Class to support SQL query building by providing necessary components.
 """
+import logging
 
+from rank_bm25 import BM25Okapi
 
-import json
 from Utilities.base_utils import get_config_val, accessDB
 from MetadataManager.MetadataStore import RAGPipeline, ManageRelations
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -53,9 +56,32 @@ class SQLBuilderSupport:
         self.DBObj = accessDB(self.tmddb_config['info_type'], self.tmddb_config['dbName'])
 
     def __filterRelevantResults__(self, results_w_scores):
+        """
+        Filter and rank retrieved tables by reranker score.
+
+        Tables whose reranker score falls below the configured threshold are dropped.
+        Remaining tables are ordered from most to least relevant.
+        """
+        threshold = get_config_val("retrieval_config", ["scoring", "reranker_threshold"])
+
+        passed = {
+            uid: vals for uid, vals in results_w_scores.items()
+            if vals['scores']['reranker'] > threshold
+        }
+
+        logger.debug(
+            "Table retrieval: %d returned, %d passed reranker threshold (%.2f)",
+            len(results_w_scores), len(passed), threshold
+        )
+
+        sorted_results = sorted(
+            passed.items(),
+            key=lambda x: x[1]['scores']['reranker'],
+            reverse=True
+        )
 
         filtered_results_dict = {}
-        for vals in results_w_scores.values():
+        for _, vals in sorted_results:
             filtered_results_dict[vals['metadata']['TableName']] = {
                 "description": vals['data'],
                 "columns": {}
@@ -123,18 +149,48 @@ class SQLBuilderSupport:
         for table,_ in self.table_list["intermediate"].items():
             self.table_list["intermediate"][table]["description"] = self.DBObj.get_data( tableName=self.tmddb_config['tableDescName'], lookupDict={'tableName':table}, lookupVal=['Desc',] )
 
-    def __filterAdditionalColumns__(self, tableColDict: dict):
+    def __filterAdditionalColumns__(self, col_tuples: list) -> list:
         """
-        Placeholder method to filter additional columns from the user's query.
+        Filter table columns by relevance to the user query using BM25 keyword scoring.
+
+        Key columns (PRIMARY KEY / FOREIGN KEY) are always retained regardless of score,
+        as they are required for JOIN resolution. All other columns are kept only if their
+        BM25 score against the user query exceeds the configured threshold.
 
         Args:
-            user_query (str): The user's SQL query.
-            table_w_metadata: Additional table metadata.
+            col_tuples (list): List of (ColumnName, DataType, Constraints, Desc) tuples
+                               as returned by SQLite fetchall().
 
         Returns:
-            dict: Filtered table metadata.
+            list: Filtered list of column tuples. Falls back to all columns if none pass.
         """
-        return tableColDict
+        if not col_tuples:
+            return col_tuples
+
+        threshold = get_config_val("retrieval_config", ["scoring", "column_score_threshold"])
+        query_tokens = self.user_query.lower().split()
+
+        # Build BM25 corpus: column name + description for each column
+        corpus = [
+            f"{col[0] or ''} {col[3] or ''}".lower().split()
+            for col in col_tuples
+        ]
+        bm25 = BM25Okapi(corpus)
+        scores = bm25.get_scores(query_tokens)
+
+        filtered = []
+        for col, score in zip(col_tuples, scores):
+            constraints = (col[2] or "").upper()
+            is_key = "PRIMARY KEY" in constraints or "FOREIGN KEY" in constraints
+            if score > threshold or is_key:
+                filtered.append(col)
+
+        if not filtered:
+            logger.debug("Column filter: no columns passed threshold — returning all %d columns", len(col_tuples))
+            return col_tuples
+
+        logger.debug("Column filter: kept %d of %d columns", len(filtered), len(col_tuples))
+        return filtered
 
     def __getTablesColList__(self):
         """
@@ -151,7 +207,12 @@ class SQLBuilderSupport:
         for ttype, table_dict in self.table_list.items():
             for table, tablemd in table_dict.items():
                 # Extracting column metadata for the current table
-                fullColMetadata = self.DBObj.get_data( tableName=self.tmddb_config['tableColName'], lookupDict={'TableName':table}, lookupVal=['ColumnName','DataType','Constraints','Desc'] )
+                fullColMetadata = self.DBObj.get_data(
+                    tableName=self.tmddb_config['tableColName'],
+                    lookupDict={'TableName': table},
+                    lookupVal=['ColumnName', 'DataType', 'Constraints', 'Desc'],
+                    fetchtype="All"
+                )
                 # Updating the 'columns' attribute for the current table after filtering additional columns
                 self.table_list[ttype][table]['columns'] = self.__filterAdditionalColumns__(fullColMetadata)
 
@@ -175,27 +236,19 @@ class SQLBuilderSupport:
 
         # Get relevant tables
         self.__getRelevantTables__()
-
-        print("Scanned Relevant Table")
-        print(self.table_list)
+        logger.debug("Scanned relevant tables: %s", self.table_list)
 
         # Get relations between tables
         self.__getTableRelations__()
-
-        print("Scanned Relations between tables")
-        print(self.join_keys)
+        logger.debug("Scanned table relations: %s", self.join_keys)
 
         # Get info for intermediate tables
         self.__getInterTablesDesc__()
-
-        print("Scanned intermediate tables required for joins")
-        print(self.table_list)
+        logger.debug("Scanned intermediate tables: %s", self.table_list)
 
         # Get relevant column list
         self.__getTablesColList__()
-
-        print("Scanned all tables metadata")
-        print(self.table_metadata)
+        logger.debug("Scanned all table metadata: %s", self.table_metadata)
 
         return {
             "user_query": self.user_query,

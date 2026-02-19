@@ -1,3 +1,3 @@
-database_config: C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\Utilities\database_config.YAML
-retrieval_config: C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\Utilities\retrieval_config.YAML
-model_config: C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\Utilities\model_config.YAML
+database_config: database_config.YAML
+retrieval_config: retrieval_config.YAML
+model_config: model_config.YAML

@@ -1,62 +1,45 @@
+import logging
 
 from APIManager.AllAPICaller import CallLLMApi
+from APIManager.PromptBuilder import PromptBuilder
 from SQLBuilderComponents import SQLBuilderSupport
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def getRelevantContext(user_query: str):
+
+def getRelevantContext(user_query: str) -> dict:
     """
-    Retrieves the context for building the query based on the question bu user
+    Retrieves the schema context needed to build a SQL query for the given question.
 
-    :param user_query: question by user for which query is to be generated
-    :return: JSON object containing context for building thq SQL query
+    :param user_query: Natural language question from the user.
+    :return: Dict containing user_query, table_list, and join_keys.
     """
     queryContext = SQLBuilderSupport()
     return queryContext.getBuildComponents(user_query)
 
 
-
-
-def generateQuery(userQuery: str, LLMservice: str):
+def generateQuery(userQuery: str, LLMservice: str) -> str:
     """
+    Generates a SQL query from a natural language question.
 
-    :param userQuery:
-    :param LLMservice:
-    :return:
+    :param userQuery: Natural language question from the user.
+    :param LLMservice: LLM provider to use ('open_ai', 'anthropic', 'google', 'groq').
+    :return: Generated SQL query string.
     """
+    context = getRelevantContext(userQuery)
 
-    ContextJson_str = getRelevantContext(userQuery)
+    schema_str = PromptBuilder.format_schema(context)
+    prompt = PromptBuilder('generate sql').build({'SCHEMA': schema_str})
 
-    prompt = f"""
-    Using the context provided below, write a SQL query.
-    {ContextJson_str}
-    """
-
-    print(prompt)
+    logger.debug("Prompt sent to LLM:\n%s", prompt)
 
     LLMObj = CallLLMApi(LLMservice)
-
     return LLMObj.CallService(prompt)
 
 
-query = """The Pricing Team wants to know for each currently offered product how their unit price compares against their categories average and median unit price. In order to help them they asked you to provide them a list of products with:
-
-their category name
-their product name
-their unit price
-their category average unit price (formatted to have only 2 decimals)
-their category median unit price (formatted to have only 2 decimals)
-their position against the category average unit price as:
-“Below Average”
-“Equal Average”
-“Over Average”
-their position against the category median unit price as:
-“Below Median”
-“Equal Median”
-“Over Median”
-Filtered on the following conditions:
-
-They are not discontinued
-Finally order the results by category name then product name (both ascending).
+query = """
+Which products have the highest sales revenue and which products have the lowest sales revenue over the past year?
 """
 
-print(generateQuery(query, "google"))
+print(generateQuery(query, "open_ai"))

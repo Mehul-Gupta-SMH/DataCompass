@@ -11,8 +11,14 @@ Classes:
     - FilterContext: A class providing filtering and scoring functionalities for retrieved information.
 """
 
+import logging
+
 import chromadb
 import uuid
+
+from MetadataManager.MetadataStore.vdb.base import BaseVectorStore
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -54,9 +60,7 @@ def getclient(sessions_args, session_type = 'local'):
             raise ValueError(f"Host information not accessible: {sessions_args}")
 
 
-    print("----------------------------------------------")
-    print("Client check : ",client.heartbeat())
-    print("----------------------------------------------")
+    logger.debug("ChromaDB client heartbeat: %s", client.heartbeat())
 
     return client
 
@@ -161,3 +165,26 @@ def getData(client, query_emb, metadata: dict, **add_filters):
         )
 
     return retrieved_data
+
+
+# ------------------------------------------------------------------
+class ChromaVectorStore(BaseVectorStore):
+    """
+    ChromaDB implementation of BaseVectorStore.
+
+    Wraps the module-level getclient / addData / getData functions
+    and holds the client as instance state so callers never touch
+    the chromadb client directly.
+    """
+
+    def __init__(self):
+        self.client = None
+
+    def connect(self, sessions_args: dict, session_type: str = "local") -> None:
+        self.client = getclient(sessions_args=sessions_args, session_type=session_type)
+
+    def add_data(self, data: list, metadata: dict) -> str:
+        return addData(self.client, data, metadata)
+
+    def get_data(self, query_emb: list, metadata: dict) -> dict:
+        return getData(self.client, query_emb, metadata)

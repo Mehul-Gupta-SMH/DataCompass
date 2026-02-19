@@ -1,6 +1,8 @@
 # --------------------------------------------------------------------
 # Import Library
 # --------------------------------------------------------------------
+import ast
+import pathlib
 import yaml
 import os
 import functools
@@ -9,6 +11,13 @@ import sqlite3
 import time
 import inspect
 import hashlib
+
+# Resolved once at import time — all paths derive from here
+_UTILS_DIR = pathlib.Path(__file__).parent
+PROJECT_ROOT = _UTILS_DIR.parent
+_CONFIG_FILE = _UTILS_DIR / "config.yaml"
+
+from Utilities.store_interface import BaseMetadataStore
 
 class TableCreateError(Exception):
     pass
@@ -30,13 +39,17 @@ def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
         - AttributeError: If unable to resolve the configuration value from the list of keys provided.
 
     """
-    with open(r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\Utilities\config.yaml","r") as conf_pths:
+    with open(_CONFIG_FILE, "r") as conf_pths:
         config_map = yaml.load(conf_pths, yaml.FullLoader)
 
     if config_type not in config_map.keys():
         raise KeyError(f"{config_type} : Config Type not Correct")
 
-    with open(config_map[config_type], 'r') as conf_file:
+    sub_config_path = pathlib.Path(config_map[config_type])
+    if not sub_config_path.is_absolute():
+        sub_config_path = _UTILS_DIR / sub_config_path
+
+    with open(sub_config_path, 'r') as conf_file:
         config_val = yaml.load(conf_file, yaml.FullLoader)
 
         for key_val in key_list:
@@ -83,7 +96,7 @@ def log_function(func):
     return wrapper
 
 # --------------------------------------------------------------------
-class accessDB:
+class accessDB(BaseMetadataStore):
     def __init__(self, info_type: str, db_name: str):
         """
         Initializes an instance of AccessDB class.
@@ -305,8 +318,8 @@ class cachefunc:
             if result is not None:
                 # Return the cached result if found
                 try:
-                    return eval(result[0])
-                except:
+                    return ast.literal_eval(result[0])
+                except (ValueError, SyntaxError):
                     return result[0]
             else:
                 # Call the original function if the result is not in the cache
@@ -329,6 +342,6 @@ class cachefunc:
         """
         Closes the database connection.
         """
-        self.connection.close()
+        self.DBObj.connection.close()
 
 # --------------------------------------------------------------------

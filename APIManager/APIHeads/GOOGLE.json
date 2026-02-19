@@ -11,6 +11,6 @@
       {"role": "user",
         "parts":[{"text": "<<input_text>>"}]
       }
-    ]},
+    ]}
 
 }
