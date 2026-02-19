@@ -92,6 +92,9 @@ class CallLLMApi:
         Raises:
             ValueError: If the API call fails.
         """
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt must be a non-empty string.")
+
         if self.llmService.lower() in ("open_ai","groq"):
             # Update the payload with the prompt for OpenAI API
             self.api_temp_dict["payload"]["messages"][0]["content"] = prompt

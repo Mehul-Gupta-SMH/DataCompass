@@ -18,6 +18,9 @@ class SQLValidationError(Exception):
 
 _CODE_FENCE_RE = re.compile(r'```(?:sql)?\s*(.*?)\s*```', re.DOTALL | re.IGNORECASE)
 
+_VALID_PROVIDERS = {"open_ai", "anthropic", "google", "groq"}
+_MAX_QUERY_LENGTH = 2000
+
 
 def _strip_code_fence(text: str) -> str:
     """Remove markdown code fences if the LLM wrapped the SQL in them."""
@@ -74,6 +77,18 @@ def generateQuery(userQuery: str, LLMservice: str) -> str:
     :param LLMservice: LLM provider to use ('open_ai', 'anthropic', 'google', 'groq').
     :return: Generated SQL query string.
     """
+    if not isinstance(userQuery, str) or not userQuery.strip():
+        raise ValueError("userQuery must be a non-empty string.")
+    if len(userQuery) > _MAX_QUERY_LENGTH:
+        raise ValueError(
+            f"userQuery exceeds maximum length of {_MAX_QUERY_LENGTH} characters "
+            f"(got {len(userQuery)})."
+        )
+    if not isinstance(LLMservice, str) or LLMservice.lower() not in _VALID_PROVIDERS:
+        raise ValueError(
+            f"LLMservice must be one of {sorted(_VALID_PROVIDERS)}, got {LLMservice!r}."
+        )
+
     context = getRelevantContext(userQuery)
 
     schema_str = PromptBuilder.format_schema(context)
