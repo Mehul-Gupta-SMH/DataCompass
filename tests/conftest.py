@@ -19,6 +19,7 @@ _HEAVY_MODULES = [
     "chromadb.config",
     "pyvis",
     "pyvis.network",
+    "iteration_utilities",
 ]
 
 for _mod in _HEAVY_MODULES:
