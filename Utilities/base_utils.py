@@ -3,6 +3,7 @@
 # --------------------------------------------------------------------
 import ast
 import pathlib
+import re
 import yaml
 import os
 import functools
@@ -22,6 +23,22 @@ from Utilities.store_interface import BaseMetadataStore
 class TableCreateError(Exception):
     pass
 
+# Only allow plain identifiers — no spaces, quotes, or SQL metacharacters
+_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+def _validate_identifier(name: str) -> None:
+    """Raise ValueError if name is not a safe SQL identifier."""
+    if name != "*" and not _IDENTIFIER_RE.match(name):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+
+
+@functools.lru_cache(maxsize=None)
+def _load_yaml(path: str) -> dict:
+    """Load and cache a YAML file by absolute path string."""
+    with open(path, "r") as f:
+        return yaml.load(f, yaml.FullLoader)
+
+
 # --------------------------------------------------------------------
 def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
     """
@@ -39,8 +56,7 @@ def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
         - AttributeError: If unable to resolve the configuration value from the list of keys provided.
 
     """
-    with open(_CONFIG_FILE, "r") as conf_pths:
-        config_map = yaml.load(conf_pths, yaml.FullLoader)
+    config_map = _load_yaml(str(_CONFIG_FILE))
 
     if config_type not in config_map.keys():
         raise KeyError(f"{config_type} : Config Type not Correct")
@@ -49,14 +65,13 @@ def get_config_val(config_type: str, key_list: list, get_all=False) -> str:
     if not sub_config_path.is_absolute():
         sub_config_path = _UTILS_DIR / sub_config_path
 
-    with open(sub_config_path, 'r') as conf_file:
-        config_val = yaml.load(conf_file, yaml.FullLoader)
+    config_val = _load_yaml(str(sub_config_path))
 
-        for key_val in key_list:
-            try:
-                config_val = config_val[key_val]
-            except:
-                raise KeyError(f"Key Value incorrect {key_val}")
+    for key_val in key_list:
+        try:
+            config_val = config_val[key_val]
+        except (KeyError, TypeError):
+            raise KeyError(f"Key Value incorrect {key_val}")
 
     if isinstance(config_val, dict) and get_all == False:
         raise AttributeError("Incomplete Key List : Unable to resolve config value from list of keys provided")
@@ -125,10 +140,12 @@ class accessDB(BaseMetadataStore):
             table_schema (dict): Dictionary containing table schema information.
         """
         tableName = tableSchema['tableName']
+        _validate_identifier(tableName)
 
         # Construct column definitions
         collist = []
         for col, md in tableSchema['columns'].items():
+            _validate_identifier(col)
             collist.append(col + " " + " ".join(md))
 
         # Construct table creation query
@@ -164,20 +181,27 @@ class accessDB(BaseMetadataStore):
         Returns:
             tuple or list: Retrieved data.
         """
+        _validate_identifier(tableName)
+
         if not len(lookupVal):
             lookupVal = ["*",]
+
+        for col in lookupVal:
+            _validate_identifier(col)
 
         if not len(lookupDict):
             self.cursor.execute(f'SELECT {", ".join(lookupVal)} FROM {tableName}')
 
         else:
-            lookupkeyslist = []
-            for colname, colval in lookupDict.items():
-                lookupkeyslist.append(f"lower({colname}) = '{str(colval).lower()}'")
+            for col in lookupDict:
+                _validate_identifier(col)
 
-            lookupQuery = f'''SELECT { ", ".join(lookupVal) } FROM { tableName } WHERE { " AND ".join(lookupkeyslist) }'''
-
-            self.cursor.execute(lookupQuery)
+            conditions = " AND ".join(f"lower({col}) = lower(?)" for col in lookupDict)
+            values = tuple(str(v) for v in lookupDict.values())
+            self.cursor.execute(
+                f'SELECT {", ".join(lookupVal)} FROM {tableName} WHERE {conditions}',
+                values
+            )
 
         if fetchtype == "one":
             return self.cursor.fetchone()
@@ -192,7 +216,10 @@ class accessDB(BaseMetadataStore):
             table_name (str): Name of the table.
             insert_list (list): List of dictionaries containing data to insert.
         """
+        _validate_identifier(tableName)
         for records_dict in insertlist:
+            for col in records_dict:
+                _validate_identifier(col)
             colList = records_dict.keys()
             placehldr = ",".join(["?"]*len(records_dict.keys()))
             colval = tuple(map(str,records_dict.values()))
@@ -214,28 +241,30 @@ class accessDB(BaseMetadataStore):
             ValueError: If update values are not provided.
         """
         if not len(updateVal):
-            raise "Update values not provided"
+            raise ValueError("Update values not provided")
 
-        updateList = []
-        for col, vals in updateVal.items():
-            updateList.append(f"{col} = {vals}")
+        _validate_identifier(tableName)
+        for col in updateVal:
+            _validate_identifier(col)
+        for col in matchVal:
+            _validate_identifier(col)
 
-        updateQuery = f'''
-        UPDATE {tableName}
-        SET {", ".join(updateList)}
-        '''
+        set_clause = ", ".join(f"{col} = ?" for col in updateVal)
+        set_values = tuple(str(v) for v in updateVal.values())
 
         if len(matchVal):
-            matchList = []
-            for col, vals in matchVal.items():
-                matchList.append(f"{col} = {vals}")
+            where_clause = " AND ".join(f"{col} = ?" for col in matchVal)
+            where_values = tuple(str(v) for v in matchVal.values())
+            self.cursor.execute(
+                f'UPDATE {tableName} SET {set_clause} WHERE {where_clause}',
+                set_values + where_values
+            )
+        else:
+            self.cursor.execute(
+                f'UPDATE {tableName} SET {set_clause}',
+                set_values
+            )
 
-            updateQuery = f'''
-            {updateQuery}
-            WHERE {" AND ".join(matchList)}
-            '''
-
-        self.cursor.execute(updateQuery)
         self.connection.commit()
 
 
@@ -243,22 +272,17 @@ class accessDB(BaseMetadataStore):
         """
         Placeholder method for deleting data from the SQLite database.
         """
-        deleteQuery = f'''
-        DELETE 
-        FROM {tableName}
-        '''
+        _validate_identifier(tableName)
+        for col in lookupDict:
+            _validate_identifier(col)
 
         if len(lookupDict):
-            lookupList = []
-            for col, vals in lookupDict.items():
-                lookupList.append(f"{col} = '{vals}'")
+            where_clause = " AND ".join(f"{col} = ?" for col in lookupDict)
+            values = tuple(str(v) for v in lookupDict.values())
+            self.cursor.execute(f'DELETE FROM {tableName} WHERE {where_clause}', values)
+        else:
+            self.cursor.execute(f'DELETE FROM {tableName}')
 
-            deleteQuery = f'''
-            {deleteQuery}
-            WHERE {" AND ".join(lookupList)}
-            '''
-
-        self.cursor.execute(deleteQuery)
         self.connection.commit()
 
 

@@ -46,18 +46,18 @@ def getclient(sessions_args, session_type = 'local'):
         try:
             # Create a PersistentClient object with the specified path
             client = chromadb.PersistentClient(path=sessions_args['path'])
-        except:
+        except Exception as e:
             # Raise an error if the specified path is inaccessible
-            raise ValueError(f"Path shared is not accessible: {sessions_args['path']}")
+            raise ValueError(f"Path shared is not accessible: {sessions_args['path']}") from e
 
     # Handling for hosted session type
     if session_type == 'hosted':
         try:
             # Create an HttpClient object with the specified host and port
             client = chromadb.HttpClient(host=sessions_args['host'], port=sessions_args['port'])
-        except:
+        except Exception as e:
             # Raise an error if host information is inaccessible
-            raise ValueError(f"Host information not accessible: {sessions_args}")
+            raise ValueError(f"Host information not accessible: {sessions_args}") from e
 
 
     logger.debug("ChromaDB client heartbeat: %s", client.heartbeat())
@@ -95,7 +95,7 @@ def addData(client, data: list, metadata: dict):
     # Attempt to get the collection specified in metadata, create it if it doesn't exist
     try:
         collection = client.get_collection(name=metadata['collection_name'])
-    except:
+    except Exception:
         collection = client.create_collection(
             name=metadata['collection_name'],
             metadata={"hnsw:space": metadata.get('sim_metric','cosine')} # 'cosine' is the default space type
@@ -147,9 +147,9 @@ def getData(client, query_emb, metadata: dict, **add_filters):
     # Attempt to get the collection specified in metadata
     try:
         collection = client.get_collection(name=metadata['collection_name'])
-    except:
+    except Exception as e:
         # Raise an error if the collection doesn't exist
-        raise ValueError(f"Collection doesn't exists : {metadata['collection_name']}")
+        raise ValueError(f"Collection doesn't exists : {metadata['collection_name']}") from e
 
     # Query the collection with provided query embeddings and filters
     if add_filters:
