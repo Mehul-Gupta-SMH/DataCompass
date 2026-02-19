@@ -20,7 +20,7 @@ def getObj():
     Load a NetworkX graph object from a pickle file if it exists, otherwise return an empty graph.
 
     Returns:
-        nx.Graph: Loaded graph object if the file exists, otherwise an empty graph.
+        nx.DiGraph: Loaded graph object if the file exists, otherwise an empty graph.
 
     Notes:
         - If the specified file exists, it is assumed to contain a NetworkX graph serialized using pickle.
@@ -35,17 +35,17 @@ def getObj():
         with open(Graphfilename, "rb") as GObj:
             return pickle.load(GObj)
     else:
-        # If the file doesn't exist, return an empty graph
-        return nx.Graph()
+        # If the file doesn't exist, return an empty directed graph
+        return nx.DiGraph()
 
 # --------------------------------------------------------------------------------------------
 
-def addRelations(GObj: nx.Graph, edges: dict):
+def addRelations(GObj: nx.DiGraph, edges: dict):
     """
     Add nodes and edges with attributes to a NetworkX graph and save it to a pickle file.
 
     Args:
-        GObj (nx.Graph): NetworkX graph object to which nodes and edges will be added.
+        GObj (nx.DiGraph): NetworkX graph object to which nodes and edges will be added.
         edges (dict): Dictionary containing edge tuples as keys (source, target) and edge attributes as values.
 
     Notes:
@@ -54,9 +54,11 @@ def addRelations(GObj: nx.Graph, edges: dict):
         - The graph is then saved to a pickle file with the specified filename.
     """
 
-    # Add edges with attributes
+    # Add edges in both directions — JOINs are semantically bidirectional,
+    # and DiGraph requires explicit reverse edges for path traversal.
     for edge in edges:
         GObj.add_edge(edge[0].lower(), edge[1].lower(), JoinKeys=edge[2])
+        GObj.add_edge(edge[1].lower(), edge[0].lower(), JoinKeys=edge[2])
 
     Graphfilename = get_config_val("retrieval_config", ["relationdb", "path"])
 
@@ -66,12 +68,12 @@ def addRelations(GObj: nx.Graph, edges: dict):
 
 # --------------------------------------------------------------------------------------------
 
-def getRelations(GObj: nx.Graph, target_nodes: list):
+def getRelations(GObj: nx.DiGraph, target_nodes: list):
     """
     Retrieve relations between target nodes in a graph.
 
     Args:
-        GObj (nx.Graph): NetworkX graph object.
+        GObj (nx.DiGraph): NetworkX graph object.
         target_nodes (list): List of target nodes.
 
     Returns:
@@ -116,12 +118,12 @@ def getRelations(GObj: nx.Graph, target_nodes: list):
     return relations
 # --------------------------------------------------------------------------------------------
 
-def visualizeRelations(GObj: nx.Graph):
+def visualizeRelations(GObj: nx.DiGraph):
     """
     Visualizes the relations in the graph and saves the graph as an HTML file.
 
     Args:
-        GObj (nx.Graph): NetworkX graph object containing the relations.
+        GObj (nx.DiGraph): NetworkX graph object containing the relations.
 
     Returns:
         str: Message indicating that the HTML graph has been exported.

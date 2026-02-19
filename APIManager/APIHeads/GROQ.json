@@ -11,6 +11,6 @@
     "messages": [{"role": "user", "content": "<<input_text>>"}],
     "temperature": 0.0,
     "max_tokens": 1024,
-    "top_p": 1,
+    "top_p": 1
   }
 }

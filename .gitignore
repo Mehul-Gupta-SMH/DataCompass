@@ -3,7 +3,7 @@ APIManager/model_access_config.YAML
 requirements.txt
 .idea
 /arxiv submission
-/__pycache__
+**/__pycache__
 *.pyc
 *.js
 *.js

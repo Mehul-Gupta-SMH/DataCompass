@@ -1,3 +1,7 @@
+import pathlib
+
+_PROMPTS_DIR = pathlib.Path(__file__).parent / "Prompts"
+
 
 class UnidentifiedPromptType(Exception):
     pass
@@ -14,32 +18,38 @@ class PromptBuilder:
 
     def __prompt_type_map__(self):
         if self.prompt_type == 'extract relations':
-            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskExtractRelations.txt"
-            self.expected_params = ['SQLQuery',]
+            prompt_path = _PROMPTS_DIR / "taskExtractRelations.txt"
+            self.expected_params = ['SQLQuery']
 
         elif self.prompt_type == 'create data dict':
-            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskGenerateTableSummary.txt"
+            prompt_path = _PROMPTS_DIR / "taskGenerateTableSummary.txt"
+            self.expected_params = []
 
         elif self.prompt_type == 'create table summary':
-            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskGenerateColumnDesc.txt"
+            prompt_path = _PROMPTS_DIR / "taskGenerateColumnDesc.txt"
+            self.expected_params = []
 
         elif self.prompt_type == 'generate data dict':
-            prompt_path = r"C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\APIManager\Prompts\taskTemplate.txt"
-            self.expected_params = ['DDLQUERY','INSERETQUERY',]
+            prompt_path = _PROMPTS_DIR / "taskTemplate.txt"
+            self.expected_params = ['DDLQUERY', 'INSERETQUERY']
+
+        elif self.prompt_type == 'generate sql':
+            prompt_path = _PROMPTS_DIR / "taskGenerateSQL.txt"
+            self.expected_params = ['SCHEMA']
 
         else:
             raise UnidentifiedPromptType(f"{self.prompt_type} : Prompt type unidentified")
 
-        with open(prompt_path,"r") as prompt_template_FObj:
+        with open(prompt_path, "r") as prompt_template_FObj:
             self.prompt_template_str = prompt_template_FObj.read()
 
     def build(self, prompt_params: dict) -> str:
 
         self.__prompt_type_map__()
 
-        if not(self.expected_params == list(prompt_params.keys())):
-            raise MissingPromptParams(f"""Params Dict provided missing specific params. 
-            Expected: {self.expected_params} 
+        if not (self.expected_params == list(prompt_params.keys())):
+            raise MissingPromptParams(f"""Params dict provided missing specific params.
+            Expected: {self.expected_params}
             Provided: {list(prompt_params.keys())}
             """)
 
@@ -50,7 +60,60 @@ class PromptBuilder:
 
         return prompt_template_str
 
+    @staticmethod
+    def format_schema(context: dict) -> str:
+        """
+        Format the context dict returned by SQLBuilderSupport.getBuildComponents()
+        into a structured markdown schema string for the LLM prompt.
+
+        Args:
+            context (dict): Dict with keys 'user_query', 'table_list', 'join_keys'.
+
+        Returns:
+            str: Markdown-formatted schema and question.
+        """
+        lines = []
+
+        lines.append("## User Question")
+        lines.append(context["user_query"].strip())
+        lines.append("")
+
+        lines.append("## Database Schema")
+
+        for table_type, tables in context["table_list"].items():
+            label = "direct" if table_type == "direct" else "intermediate"
+            for table_name, table_data in tables.items():
+                lines.append(f"\n### {table_name} [{label}]")
+
+                description = table_data.get("description")
+                if description:
+                    # fetchone() returns a tuple — unpack if needed
+                    if isinstance(description, tuple):
+                        description = description[0]
+                    lines.append(f"> {description}")
+
+                lines.append("")
+                columns = table_data.get("columns") or []
+                if columns:
+                    lines.append("| Column | Type | Constraints | Description |")
+                    lines.append("|--------|------|-------------|-------------|")
+                    for col in columns:
+                        col_name = col[0] or ""
+                        col_type = col[1] or ""
+                        constraints = col[2] or ""
+                        desc = col[3] or ""
+                        lines.append(f"| {col_name} | {col_type} | {constraints} | {desc} |")
+                lines.append("")
+
+        join_keys = context.get("join_keys") or []
+        if join_keys:
+            lines.append("## Join Paths")
+            for rel in join_keys:
+                join_attrs = (rel.get("edge_attributes") or {}).get("JoinKeys", "")
+                lines.append(f"- {rel['source']} → {rel['target']} via {join_attrs}")
+
+        return "\n".join(lines)
 
 
 if __name__ == "__main__":
-    print(PromptBuilder("extract relations").build({"SQLQuery":""}))
+    print(PromptBuilder("extract relations").build({"SQLQuery": ""}))

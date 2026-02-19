@@ -18,9 +18,18 @@ Methods:
     - CallService(self, prompt: str) -> str: Call the LLM service API with the provided prompt and return the generated text.
 """
 
+import json
+import logging
+import time
 import requests
 import yaml
 from Utilities.base_utils import get_config_val
+
+logger = logging.getLogger(__name__)
+
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0          # seconds; doubles on each attempt
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 class CallLLMApi:
@@ -39,7 +48,8 @@ class CallLLMApi:
             llmService (str, optional): The LLM service to be used. Defaults to "OpenAI".
         """
         self.llmService = llmService
-        self.api_temp_dict = self.__set_apidict__(llmService)
+        self.api_temp_dict = None
+        self.__set_apidict__(llmService)
 
     def __set_apidict__(self, llmService):
         """
@@ -65,7 +75,7 @@ class CallLLMApi:
             api_temp_str = api_temp_str.replace("<<model>>",model_config["model_name"])
 
         # Convert API template string to dictionary
-        self.api_temp_dict = eval(api_temp_str)
+        self.api_temp_dict = json.loads(api_temp_str)
 
 
     def CallService(self, prompt: str) -> str:
@@ -81,8 +91,6 @@ class CallLLMApi:
         Raises:
             ValueError: If the API call fails.
         """
-        self.__set_apidict__(self.llmService)
-
         if self.llmService.lower() in ("open_ai","groq"):
             # Update the payload with the prompt for OpenAI API
             self.api_temp_dict["payload"]["messages"][0]["content"] = prompt
@@ -96,21 +104,36 @@ class CallLLMApi:
             self.api_temp_dict["payload"]["contents"][0]["parts"][0]["text"] = prompt
 
 
-        # Make the API call
-        response = requests.post(self.api_temp_dict["endpoint"],
-                                 headers=self.api_temp_dict["headers"],
-                                 json=self.api_temp_dict["payload"])
-        # Process the response
-        data = response.json()
+        # Make the API call with exponential backoff retry for transient errors
+        for attempt in range(1, _MAX_RETRIES + 1):
+            response = requests.post(
+                self.api_temp_dict["endpoint"],
+                headers=self.api_temp_dict["headers"],
+                json=self.api_temp_dict["payload"]
+            )
 
-        if response.status_code == 200:
-            if self.llmService.lower() in ("open_ai", "groq"):
-                return data['choices'][0]['message']['content']
-            if self.llmService.lower() == "anthropic":
-                return data['completion']
-            if self.llmService.lower() == "google":
-                return data['candidates'][0]['content']['parts'][0]['text']
+            if response.status_code == 200:
+                data = response.json()
+                if self.llmService.lower() in ("open_ai", "groq"):
+                    return data['choices'][0]['message']['content']
+                if self.llmService.lower() == "anthropic":
+                    return data['completion']
+                if self.llmService.lower() == "google":
+                    return data['candidates'][0]['content']['parts'][0]['text']
 
-        else:
-            raise  ValueError(f"Failed to create message. Status code: {response.status_code}")
+            if response.status_code in _RETRYABLE_STATUS_CODES:
+                if attempt < _MAX_RETRIES:
+                    delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                    logger.warning(
+                        "LLM API returned %d (attempt %d/%d) — retrying in %.1fs",
+                        response.status_code, attempt, _MAX_RETRIES, delay
+                    )
+                    time.sleep(delay)
+                    continue
+
+            # Non-retryable error or retries exhausted
+            raise ValueError(
+                f"LLM API call failed after {attempt} attempt(s). "
+                f"Status code: {response.status_code} — {response.text[:200]}"
+            )
 
