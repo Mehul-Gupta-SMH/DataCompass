@@ -156,5 +156,52 @@ class TestFilterEdgeCases(unittest.TestCase):
         self.assertIsInstance(result, list)
 
 
+# ---------------------------------------------------------------------------
+# BM25 caching
+# ---------------------------------------------------------------------------
+
+class TestBM25Cache(unittest.TestCase):
+
+    def test_same_corpus_reuses_cached_index(self):
+        """_build_bm25 should return the identical object for the same corpus_key."""
+        from SQLBuilderComponents import _build_bm25
+        _build_bm25.cache_clear()
+
+        key = (("order", "id"), ("customer", "name"))
+        first  = _build_bm25(key)
+        second = _build_bm25(key)
+
+        self.assertIs(first, second)
+        self.assertEqual(_build_bm25.cache_info().hits, 1)
+
+    def test_different_corpus_builds_new_index(self):
+        """Different column sets should produce distinct BM25 objects."""
+        from SQLBuilderComponents import _build_bm25
+        _build_bm25.cache_clear()
+
+        key_a = (("order", "id"),)
+        key_b = (("product", "name"),)
+
+        self.assertIsNot(_build_bm25(key_a), _build_bm25(key_b))
+
+    @patch("SQLBuilderComponents.get_config_val", return_value=0.0)
+    def test_filter_columns_hits_cache_on_second_call(self, _):
+        """Calling __filterAdditionalColumns__ twice with identical columns
+        should result in exactly one cache miss and one cache hit."""
+        from SQLBuilderComponents import _build_bm25
+        _build_bm25.cache_clear()
+
+        cols = [
+            ("order_id",  "INT",  "PRIMARY KEY", "Unique order identifier"),
+            ("revenue",   "DECIMAL", "",         "Total revenue"),
+        ]
+        obj = _make_support("show revenue")
+        obj.__filterAdditionalColumns__(cols)  # miss
+        obj.__filterAdditionalColumns__(cols)  # hit
+
+        self.assertEqual(_build_bm25.cache_info().hits, 1)
+        self.assertEqual(_build_bm25.cache_info().misses, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
