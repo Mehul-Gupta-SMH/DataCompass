@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _RETRY_BASE_DELAY = 1.0          # seconds; doubles on each attempt
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_REQUEST_TIMEOUT = 60            # seconds before a hung request is aborted
 
 
 class CallLLMApi:
@@ -109,7 +110,8 @@ class CallLLMApi:
             response = requests.post(
                 self.api_temp_dict["endpoint"],
                 headers=self.api_temp_dict["headers"],
-                json=self.api_temp_dict["payload"]
+                json=self.api_temp_dict["payload"],
+                timeout=_REQUEST_TIMEOUT
             )
 
             if response.status_code == 200:
