@@ -2,8 +2,21 @@ import React, { useState, useEffect } from 'react'
 import QueryInput from './components/QueryInput.jsx'
 import SQLResult from './components/SQLResult.jsx'
 import QueryHistory from './components/QueryHistory.jsx'
+import SchemaERD from './components/SchemaERD.jsx'
+
+const tabStyle = (active) => ({
+  padding: '6px 16px',
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  fontWeight: active ? 600 : 400,
+  color: active ? '#2563eb' : '#555',
+  borderBottom: active ? '2px solid #2563eb' : '2px solid transparent',
+  fontSize: 14,
+})
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState('query')
   const [providers, setProviders] = useState([])
   const [provider, setProvider] = useState('')
   const [query, setQuery] = useState('')
@@ -59,19 +72,45 @@ export default function App() {
 
   return (
     <div>
-      <h1>SQLCoder</h1>
-      <QueryInput
-        query={query}
-        setQuery={setQuery}
-        provider={provider}
-        setProvider={setProvider}
-        providers={providers}
-        loading={loading}
-        error={error}
-        onSubmit={handleSubmit}
-      />
-      <SQLResult sql={sql} />
-      <QueryHistory history={history} onSelect={handleHistorySelect} />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid #e5e7eb',
+          paddingBottom: 0,
+          marginBottom: 16,
+        }}
+      >
+        <h1 style={{ margin: 0, fontSize: 20 }}>SQLCoder</h1>
+        <nav style={{ display: 'flex', gap: 4 }}>
+          <button style={tabStyle(activeTab === 'query')} onClick={() => setActiveTab('query')}>
+            Query
+          </button>
+          <button style={tabStyle(activeTab === 'schema')} onClick={() => setActiveTab('schema')}>
+            Schema / ERD
+          </button>
+        </nav>
+      </div>
+
+      {activeTab === 'query' && (
+        <>
+          <QueryInput
+            query={query}
+            setQuery={setQuery}
+            provider={provider}
+            setProvider={setProvider}
+            providers={providers}
+            loading={loading}
+            error={error}
+            onSubmit={handleSubmit}
+          />
+          <SQLResult sql={sql} />
+          <QueryHistory history={history} onSelect={handleHistorySelect} />
+        </>
+      )}
+
+      {activeTab === 'schema' && <SchemaERD />}
     </div>
   )
 }
