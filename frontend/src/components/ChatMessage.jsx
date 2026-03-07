@@ -108,7 +108,7 @@ function RunQueryPanel({ content, queryType }) {
 // ---------------------------------------------------------------------------
 // Individual message bubble
 // ---------------------------------------------------------------------------
-export default function ChatMessage({ msg }) {
+export default function ChatMessage({ msg, onRetry }) {
   const [copied, setCopied] = useState(false)
 
   const isUser = msg.role === 'user'
@@ -189,6 +189,24 @@ export default function ChatMessage({ msg }) {
           }}
         >
           {msg.content}
+          {onRetry && msg.retryQuery && (
+            <button
+              onClick={() => onRetry(msg)}
+              style={{
+                display: 'block',
+                marginTop: 8,
+                background: 'none',
+                border: '1px solid #fca5a5',
+                borderRadius: 5,
+                padding: '3px 10px',
+                fontSize: 12,
+                color: '#991b1b',
+                cursor: 'pointer',
+              }}
+            >
+              ↺ Retry
+            </button>
+          )}
         </div>
       </div>
     )

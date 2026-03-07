@@ -7,11 +7,12 @@ export default function TableNode({ data }) {
         minWidth: 260,
         width: 260,
         background: '#fff',
-        border: '1px solid #ddd',
+        border: data.selected ? '2px solid #2563eb' : '1px solid #ddd',
         borderRadius: 8,
         overflow: 'hidden',
         fontFamily: 'sans-serif',
         fontSize: 12,
+        boxShadow: data.selected ? '0 0 0 3px #bfdbfe' : 'none',
       }}
     >
       <Handle type="target" position={Position.Left} />
