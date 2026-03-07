@@ -19,7 +19,7 @@ class SQLValidationError(Exception):
 _CODE_FENCE_RE = re.compile(r'```(?:\w+)?\s*(.*?)\s*```', re.DOTALL | re.IGNORECASE)
 
 _VALID_PROVIDERS = {"open_ai", "anthropic", "google", "groq", "codex", "claude_code"}
-_VALID_QUERY_TYPES = {"sql", "spark_sql", "dataframe_api"}
+_VALID_QUERY_TYPES = {"sql", "spark_sql", "dataframe_api", "pandas"}
 _CODE_FENCE_PYSPARK_RE = re.compile(r'```(?:python)?\s*(.*?)\s*```', re.DOTALL | re.IGNORECASE)
 _MAX_QUERY_LENGTH = 2000
 
@@ -89,6 +89,37 @@ def validate_sql(llm_output: str) -> dict:
     )
 
 
+def validate_pandas(llm_output: str) -> dict:
+    """
+    Parse and validate an LLM response for Pandas code generation.
+
+    Returns a dict:
+      {"type": "code",    "content": "<validated Pandas code>"}
+      {"type": "clarify", "content": "<question for the user>"}
+
+    Raises SQLValidationError if the response claims to be code but contains no
+    recognisable Pandas operations.
+    """
+    result = _parse_llm_json(llm_output)
+
+    if result['type'] == 'clarify':
+        return result
+
+    cleaned = result['content']
+    if not cleaned:
+        raise SQLValidationError(f"LLM response is empty after stripping. Raw: {llm_output[:200]!r}")
+
+    _PANDAS_RE = re.compile(
+        r'\.(merge|groupby|agg|sort_values|query|filter|assign|rename|drop|loc|iloc|head|tail|value_counts|pivot|pivot_table|apply|map|fillna|dropna)\s*[(\[]',
+        re.IGNORECASE,
+    )
+    if not _PANDAS_RE.search(cleaned):
+        raise SQLValidationError(
+            f"Response does not contain valid Pandas code.\nRaw: {llm_output[:200]!r}"
+        )
+    return result
+
+
 def validate_pyspark(llm_output: str) -> dict:
     """
     Parse and validate an LLM response for PySpark DataFrame API generation.
@@ -135,6 +166,7 @@ _PROMPT_MAP = {
     "sql": "generate sql",
     "spark_sql": "generate spark sql",
     "dataframe_api": "generate dataframe api",
+    "pandas": "generate pandas",
 }
 
 
@@ -181,7 +213,28 @@ def generateQuery(
             f"query_type must be one of {sorted(_VALID_QUERY_TYPES)}, got {query_type!r}."
         )
 
-    context = getRelevantContext(userQuery)
+    # Use raw user messages from conversation for RAG search — natural-language
+    # questions match ChromaDB table-description embeddings far better than the
+    # structured requirements summary that gatherRequirements() produces.
+    rag_query = userQuery
+    if conversation:
+        user_texts = [m["content"] for m in conversation if m.get("role") == "user"]
+        if user_texts:
+            rag_query = " ".join(user_texts[-3:])
+
+    context = getRelevantContext(rag_query)
+
+    # Guard: if RAG returned no tables the prompt schema section will be blank,
+    # which confuses the LLM. Fall back to the requirements summary as the query.
+    no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
+    if no_tables and rag_query != userQuery:
+        logger.warning("RAG returned no tables using conversation query; retrying with requirements summary")
+        context = getRelevantContext(userQuery)
+        no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
+
+    if no_tables:
+        logger.error("RAG returned no tables for query %r — schema section will be empty", rag_query)
+
     schema_str = PromptBuilder.format_schema(context)
     conversation_str = _format_conversation(conversation)
 
@@ -197,7 +250,11 @@ def generateQuery(
 
     logger.debug("Raw LLM response:\n%s", raw)
 
-    return validate_pyspark(raw) if query_type == "dataframe_api" else validate_sql(raw)
+    if query_type == "dataframe_api":
+        return validate_pyspark(raw)
+    if query_type == "pandas":
+        return validate_pandas(raw)
+    return validate_sql(raw)
 
 
 def _get_full_table_schema(table_name: str) -> str:
@@ -343,8 +400,23 @@ def gatherRequirements(messages: list, provider: str) -> dict:
         cleaned = _strip_code_fence(raw)
         json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
         if not json_match:
-            # Not JSON — treat as a plain clarifying question
-            return {"ready": False, "question": raw.strip()}
+            # LLM returned plain text instead of JSON — re-prompt once with a strict reminder
+            logger.warning("Gathering agent returned non-JSON (attempt %d); re-prompting for JSON", attempt + 1)
+            correction_prompt = (
+                prompt
+                + "\n\n[SYSTEM] Your last response was not valid JSON. "
+                "You MUST respond with ONLY a JSON object — no explanation, no plain text. "
+                "If you need schema details, use {\"action\": \"get_schema\", \"table\": \"...\"}. "
+                "Do NOT ask the user for schema or column information."
+            )
+            try:
+                raw = CallLLMApi(provider).CallService(correction_prompt)
+                cleaned = _strip_code_fence(raw)
+                json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+            except Exception:
+                pass
+            if not json_match:
+                return {"ready": False, "question": "I need a bit more context to build this query. Could you describe what you're looking for — which entities, what filters, and what the output should show?"}
 
         try:
             parsed = _json.loads(json_match.group(0))
@@ -366,7 +438,15 @@ def gatherRequirements(messages: list, provider: str) -> dict:
 
         # --- Final answer: question or ready ---
         if isinstance(parsed.get("ready"), bool):
-            return parsed
+            result = {"ready": parsed["ready"]}
+            if parsed["ready"]:
+                result["summary"] = parsed.get("summary", "")
+            else:
+                result["question"] = parsed.get("question", "")
+                options = parsed.get("options")
+                if isinstance(options, list) and options:
+                    result["options"] = [str(o) for o in options]
+            return result
 
         # Unrecognised JSON shape — treat as a question
         return {"ready": False, "question": raw.strip()}

@@ -41,32 +41,32 @@ class TestValidateSql(unittest.TestCase):
 
     def test_valid_select(self):
         result = validate_sql("SELECT * FROM orders")
-        self.assertEqual(result, "SELECT * FROM orders")
+        self.assertEqual(result["content"], "SELECT * FROM orders")
 
     def test_valid_select_in_code_fence(self):
         result = validate_sql("```sql\nSELECT id FROM users WHERE active = 1\n```")
-        self.assertEqual(result, "SELECT id FROM users WHERE active = 1")
+        self.assertEqual(result["content"], "SELECT id FROM users WHERE active = 1")
 
     def test_valid_insert(self):
         result = validate_sql("INSERT INTO orders (id) VALUES (1)")
-        self.assertIn("INSERT", result)
+        self.assertIn("INSERT", result["content"])
 
     def test_valid_update(self):
         result = validate_sql("UPDATE orders SET status = 'done' WHERE id = 1")
-        self.assertIn("UPDATE", result)
+        self.assertIn("UPDATE", result["content"])
 
     def test_valid_delete(self):
         result = validate_sql("DELETE FROM orders WHERE id = 1")
-        self.assertIn("DELETE", result)
+        self.assertIn("DELETE", result["content"])
 
     def test_valid_create(self):
         result = validate_sql("CREATE TABLE foo (id INT)")
-        self.assertIn("CREATE", result)
+        self.assertIn("CREATE", result["content"])
 
     def test_valid_cte(self):
         sql = "WITH cte AS (SELECT 1 AS n) SELECT n FROM cte"
         result = validate_sql(sql)
-        self.assertEqual(result, sql)
+        self.assertEqual(result["content"], sql)
 
     def test_raises_on_empty_string(self):
         with self.assertRaises(SQLValidationError):

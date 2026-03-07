@@ -28,7 +28,7 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     query: str
     provider: str
-    query_type: Literal["sql", "spark_sql", "dataframe_api"] = "sql"
+    query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
 
 
 class ExecuteRequest(BaseModel):
@@ -45,7 +45,7 @@ class ChatMessageItem(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMessageItem]
     provider: str
-    query_type: Literal["sql", "spark_sql", "dataframe_api"] = "sql"
+    query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
 
 
 class IngestPreviewRequest(BaseModel):
@@ -112,11 +112,14 @@ def post_chat(body: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Requirement gathering failed: {exc}")
 
     if not gather.get("ready"):
-        return {
+        clarify = {
             "type": "clarify",
             "sql": gather.get("question", "Could you provide more details?"),
             "query_type": body.query_type,
         }
+        if gather.get("options"):
+            clarify["options"] = gather["options"]
+        return clarify
 
     try:
         result = generateQuery(gather["summary"], body.provider, body.query_type, messages)

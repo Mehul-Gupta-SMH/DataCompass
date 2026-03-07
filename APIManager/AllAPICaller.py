@@ -104,10 +104,20 @@ class CallLLMApi:
         # claude_code — delegate to the local Claude Code CLI                 #
         # ------------------------------------------------------------------ #
         if self.llmService.lower() == "claude_code":
+            import json as _json
             model = self.api_temp_dict.get("model", "claude-sonnet-4-5")
             try:
+                # Pass the full task prompt as --system-prompt so Claude treats it
+                # as operating instructions rather than user-pasted content.
+                # A neutral -p trigger activates the response without framing the
+                # prompt as something the "user" typed into the chat.
                 result = subprocess.run(
-                    ["claude", "-p", prompt, "--model", model, "--output-format", "text"],
+                    [
+                        "claude", "-p", "Execute the task as specified.",
+                        "--system-prompt", prompt,
+                        "--model", model,
+                        "--output-format", "json",
+                    ],
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
@@ -126,7 +136,25 @@ class CallLLMApi:
                 err = result.stderr.strip() or result.stdout.strip()
                 raise ValueError(f"Claude Code CLI exited with error: {err[:300]}")
 
-            return result.stdout.strip()
+            # Parse JSON response to extract text and record token usage
+            try:
+                data = _json.loads(result.stdout)
+                text_out = data.get("result", result.stdout).strip()
+                usage = data.get("usage") or {}
+                cost  = data.get("cost_usd") or 0.0
+                try:
+                    from backend.usage_tracker import record_claude_code
+                    record_claude_code(
+                        input_tokens=int(usage.get("input_tokens", 0)),
+                        output_tokens=int(usage.get("output_tokens", 0)),
+                        cost_usd=float(cost),
+                    )
+                except Exception:
+                    pass  # tracking is best-effort
+            except (_json.JSONDecodeError, AttributeError):
+                text_out = result.stdout.strip()
+
+            return text_out
 
         # ------------------------------------------------------------------ #
         # HTTP-based providers                                                 #

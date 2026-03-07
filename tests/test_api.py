@@ -64,21 +64,21 @@ class TestGetProviders:
 class TestPostQuerySuccess:
 
     def test_returns_200_with_sql(self, client, mock_generate):
-        mock_generate.return_value = "SELECT 1"
+        mock_generate.return_value = {"type": "sql", "content": "SELECT 1"}
         resp = client.post(
             "/api/query",
             json={"query": "show me orders", "provider": "open_ai"},
         )
         assert resp.status_code == 200
-        assert resp.json() == {"sql": "SELECT 1"}
+        assert resp.json() == {"type": "sql", "sql": "SELECT 1", "query_type": "sql"}
 
     def test_generatequery_called_with_correct_args(self, client, mock_generate):
-        mock_generate.return_value = "SELECT 1"
+        mock_generate.return_value = {"type": "sql", "content": "SELECT 1"}
         client.post(
             "/api/query",
             json={"query": "show me orders", "provider": "open_ai"},
         )
-        mock_generate.assert_called_once_with("show me orders", "open_ai")
+        mock_generate.assert_called_once_with("show me orders", "open_ai", "sql")
 
 
 # ---------------------------------------------------------------------------

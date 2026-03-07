@@ -45,6 +45,10 @@ class PromptBuilder:
             prompt_path = _PROMPTS_DIR / "taskGenerateDataframeAPI.txt"
             self.expected_params = ['CONVERSATION', 'SCHEMA']
 
+        elif self.prompt_type == 'generate pandas':
+            prompt_path = _PROMPTS_DIR / "taskGeneratePandas.txt"
+            self.expected_params = ['CONVERSATION', 'SCHEMA']
+
         elif self.prompt_type == 'ingest pipeline':
             prompt_path = _PROMPTS_DIR / "taskIngestPipeline.txt"
             self.expected_params = ['SQL', 'SOURCE_SCHEMAS', 'COLUMN_MAPPINGS']
@@ -95,6 +99,11 @@ class PromptBuilder:
         lines.append("")
 
         lines.append("## Database Schema")
+
+        has_tables = any(context["table_list"].get(k) for k in ("direct", "intermediate"))
+        if not has_tables:
+            lines.append("\n> No schema information was retrieved for this query. "
+                         "Generate the best query you can based on the conversation context above.")
 
         for table_type, tables in context["table_list"].items():
             label = "direct" if table_type == "direct" else "intermediate"

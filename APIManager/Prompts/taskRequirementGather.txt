@@ -39,9 +39,11 @@ Only ask the user for things they actually know: business context, thresholds, t
 {"action": "get_schema", "table": "Customers"}
 
 **Ask one clarifying question (only for information the user must provide, referencing the columns you found):**
-{"ready": false, "question": "I can see the `Orders` table has an `OrderDate` column and a `Freight` column. Should I filter to a specific date range, or include all orders? And are you looking for total freight cost or just a count of orders?"}
+Include an `options` array of 2–4 short, concrete answer choices whenever natural. Omit `options` only when the answer is truly free-form (e.g. a custom date, a specific name).
+{"ready": false, "question": "I can see the `Orders` table has an `OrderDate` column and a `Freight` column. Should I filter to a specific date range, or include all orders? And are you looking for total freight cost or just a count of orders?", "options": ["All orders, total freight cost", "All orders, count only", "Filter by date range"]}
 
 **Declare ready (once all required details are known):**
 {"ready": true, "summary": "Query the `Orders` table joined to `Customers` on CustomerID. Filter where Customers.Country = 'Germany'. Group by Customers.City. Return City and COUNT(Orders.OrderID) as order_count, ordered by order_count DESC."}
 
-Respond with ONLY valid JSON — no explanation, no markdown, nothing else.
+CRITICAL — You MUST respond with ONLY valid JSON. No explanation, no markdown, no plain text.
+If you are unsure, output a get_schema or ready/question JSON. Never output a sentence or paragraph.

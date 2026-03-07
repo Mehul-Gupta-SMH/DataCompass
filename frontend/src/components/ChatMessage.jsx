@@ -108,7 +108,7 @@ function RunQueryPanel({ content, queryType }) {
 // ---------------------------------------------------------------------------
 // Individual message bubble
 // ---------------------------------------------------------------------------
-export default function ChatMessage({ msg, onRetry }) {
+export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
   const [copied, setCopied] = useState(false)
 
   const isUser = msg.role === 'user'
@@ -167,6 +167,29 @@ export default function ChatMessage({ msg, onRetry }) {
             }}
           >
             {msg.content}
+            {msg.options?.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                {msg.options.map((opt, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onOptionSelect?.(opt)}
+                    style={{
+                      background: '#fff',
+                      border: '1px solid #2563eb',
+                      borderRadius: 20,
+                      padding: '4px 14px',
+                      fontSize: 13,
+                      color: '#2563eb',
+                      cursor: 'pointer',
+                      fontWeight: 500,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -214,11 +237,12 @@ export default function ChatMessage({ msg, onRetry }) {
 
   // ---- SQL / Code bubble --------------------------------------------------
   const label =
-    msg.queryType === 'dataframe_api' ? 'Generated DataFrame Code'
+    msg.queryType === 'dataframe_api' ? 'Generated PySpark Code'
     : msg.queryType === 'spark_sql'   ? 'Generated Spark SQL'
+    : msg.queryType === 'pandas'      ? 'Generated Pandas Code'
     : 'Generated SQL'
 
-  const canRun = msg.queryType !== 'dataframe_api'
+  const canRun = msg.queryType === 'sql' || msg.queryType === 'spark_sql'
 
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
@@ -266,13 +290,15 @@ export default function ChatMessage({ msg, onRetry }) {
           </pre>
         </div>
 
-        {/* DataFrame API notice */}
+        {/* Non-executable code notice */}
         {!canRun && (
           <div style={{
             marginTop: 8, padding: '6px 12px', background: '#fffbeb',
             border: '1px solid #fcd34d', borderRadius: 6, fontSize: 12, color: '#92400e',
           }}>
-            DataFrame API requires a live PySpark environment — copy and run in your notebook.
+            {msg.queryType === 'pandas'
+              ? 'Pandas code requires a local Python environment — copy and run in your notebook.'
+              : 'PySpark DataFrame API requires a live Spark environment — copy and run in your notebook.'}
           </div>
         )}
 

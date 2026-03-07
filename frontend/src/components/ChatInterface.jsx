@@ -5,6 +5,7 @@ const QUERY_TYPE_LABELS = {
   sql: 'SQL',
   spark_sql: 'Spark SQL',
   dataframe_api: 'DataFrame API',
+  pandas: 'Pandas',
 }
 
 const PROVIDER_LABELS = {
@@ -234,7 +235,9 @@ export default function ChatInterface({ providers }) {
       }
 
       const msgType = data.type === 'clarify' ? 'clarify' : 'sql'
-      pushMsg({ role: 'assistant', type: msgType, content: data.sql, queryType: qType })
+      const msg = { role: 'assistant', type: msgType, content: data.sql, queryType: qType }
+      if (data.options?.length) msg.options = data.options
+      pushMsg(msg)
     } catch {
       pushMsg({ role: 'assistant', type: 'error', content: 'Network error — is the backend running?', retryQuery: retryLabel })
     } finally {
@@ -265,7 +268,26 @@ export default function ChatInterface({ providers }) {
     if (loading) return
     const prior = messages.filter((m) => m.id !== failedMsg.id)
     setMessages(prior)
-    _callApi(buildHistory(prior), provider, queryType, failedMsg.retryQuery)
+    // Exclude previous assistant clarify messages so the requirement gathering
+    // agent re-evaluates fresh from user messages only (not its own prior questions).
+    const retryHistory = prior
+      .filter((m) => m.type === 'text')
+      .map((m) => ({ role: m.role, content: m.content }))
+    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery)
+  }
+
+  async function handleOptionSelect(optionText) {
+    if (loading) return
+    setInput('')
+    if (!sessionIdRef.current) {
+      const newId = Date.now().toString()
+      sessionIdRef.current = newId
+      setCurrentSessionId(newId)
+    }
+    const userEntry = { id: nextId(), role: 'user', type: 'text', content: optionText }
+    const updated = [...messages, userEntry]
+    setMessages(updated)
+    await _callApi(buildHistory(updated), provider, queryType, optionText)
   }
 
   function handleKeyDown(e) {
@@ -365,7 +387,7 @@ export default function ChatInterface({ providers }) {
           )}
 
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} />
+            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect} />
           ))}
 
           {loading && (

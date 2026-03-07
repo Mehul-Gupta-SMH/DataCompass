@@ -57,12 +57,17 @@ def _check_openai(api_key: str) -> dict:
     Try OpenAI's credit-grants / organization-credits endpoints.
     Returns confirmed dollar balance when available.
     Greys out on 401 (invalid key) or confirmed $0 balance.
+
+    Note: dashboard/billing endpoints require a browser session key and return
+    403 for secret (sk-...) keys. We fall back to a models-list probe to at
+    least confirm key validity.
     """
     auth = {"Authorization": f"Bearer {api_key}"}
+    saw_invalid_key = False
 
     for url in [
         "https://api.openai.com/v1/organization/credits",
-        "https://api.openai.com/dashboard/billing/credit_grants",
+        "https://api.openai.com/v1/dashboard/billing/credit_grants",
     ]:
         try:
             r = requests.get(url, headers=auth, timeout=_TIMEOUT)
@@ -70,9 +75,8 @@ def _check_openai(api_key: str) -> dict:
             continue
 
         if r.status_code == 401:
-            return {"balance": None, "currency": "USD",
-                    "available": False, "status": "invalid_key",
-                    "label": "Invalid key"}
+            saw_invalid_key = True
+            continue
 
         if r.status_code == 200:
             data = r.json()
@@ -95,7 +99,24 @@ def _check_openai(api_key: str) -> dict:
                         "available": True, "status": "ok",
                         "label": f"${amt:,.2f}"}
 
-    # Balance API not accessible (org key required, or endpoint changed)
+    if saw_invalid_key:
+        return {"balance": None, "currency": "USD",
+                "available": False, "status": "invalid_key", "label": "Invalid key"}
+
+    # Balance API not accessible for secret keys (requires browser session).
+    # Fall back to a lightweight models-list call to confirm key validity.
+    try:
+        r = requests.get(
+            "https://api.openai.com/v1/models",
+            headers=auth,
+            timeout=_TIMEOUT,
+        )
+        if r.status_code == 401:
+            return {"balance": None, "currency": "USD",
+                    "available": False, "status": "invalid_key", "label": "Invalid key"}
+    except requests.RequestException:
+        pass
+
     return {"balance": None, "currency": "USD",
             "available": True, "status": "unavailable", "label": "N/A"}
 
@@ -192,7 +213,8 @@ def _check_google(api_key: str) -> dict:
 def _check_claude_code(_api_key: str) -> dict:
     """
     claude_code uses the local Claude Code CLI, not an API key.
-    Check that the `claude` executable is installed and authenticated.
+    Check that the `claude` executable is installed and show session token usage
+    accumulated since the backend started.
     """
     try:
         result = subprocess.run(
@@ -201,8 +223,27 @@ def _check_claude_code(_api_key: str) -> dict:
         )
         if result.returncode == 0:
             version = result.stdout.strip().split("\n")[0]
+
+            # Include session usage if any calls have been made
+            try:
+                from backend.usage_tracker import get_claude_code_stats
+                stats = get_claude_code_stats()
+                if stats["calls"] > 0:
+                    tok_in  = stats["input_tokens"]
+                    tok_out = stats["output_tokens"]
+                    cost    = stats["cost_usd"]
+                    usage_str = (
+                        f"{tok_in:,}↑ {tok_out:,}↓ tok"
+                        + (f" · ${cost:.4f}" if cost > 0 else "")
+                    )
+                    label = f"CLI {version} · {usage_str}"
+                else:
+                    label = f"CLI {version}"
+            except Exception:
+                label = f"CLI {version}"
+
             return {"balance": None, "currency": None,
-                    "available": True, "status": "ok", "label": f"CLI {version}"}
+                    "available": True, "status": "ok", "label": label}
     except FileNotFoundError:
         pass
     except subprocess.TimeoutExpired:
