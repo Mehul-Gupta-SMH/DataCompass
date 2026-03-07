@@ -203,7 +203,10 @@ def generateQuery(
 def _get_full_table_schema(table_name: str) -> str:
     """
     Fetch full column metadata for a single table from SQLite.
-    Returns a markdown-formatted string the gathering agent can read.
+
+    Returns a markdown table with all available metadata columns:
+      ColumnName, DataType, Constraints, Description, Logic (source expression),
+      LogicType, BaseTable — the latter three are populated for pipeline-derived tables.
     """
     try:
         from Utilities.base_utils import accessDB, get_config_val
@@ -214,19 +217,35 @@ def _get_full_table_schema(table_name: str) -> str:
         desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table_name}, ["Desc"])
         cols = db.get_data(
             tmddb["tableColName"], {"TableName": table_name},
-            ["ColumnName", "DataType", "Constraints", "Desc"], fetchtype="All",
+            ["ColumnName", "DataType", "Constraints", "Desc", "logic", "type_of_logic", "base_table"],
+            fetchtype="All",
         ) or []
 
         lines = [f"### {table_name}"]
         if desc_row:
             lines.append(f"> {desc_row[0]}")
+        lines.append("")
+
         if cols:
-            lines.append("| Column | Type | Constraints | Description |")
-            lines.append("|--------|------|-------------|-------------|")
-            for col in cols:
-                lines.append(f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''} |")
+            # Determine whether any lineage columns are populated
+            has_lineage = any(col[4] or col[5] or col[6] for col in cols)
+
+            if has_lineage:
+                lines.append("| Column | Type | Constraints | Description | Source Expression | Logic Type | Base Table |")
+                lines.append("|--------|------|-------------|-------------|-------------------|------------|------------|")
+                for col in cols:
+                    lines.append(
+                        f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''}"
+                        f" | {col[4] or ''} | {col[5] or ''} | {col[6] or ''} |"
+                    )
+            else:
+                lines.append("| Column | Type | Constraints | Description |")
+                lines.append("|--------|------|-------------|-------------|")
+                for col in cols:
+                    lines.append(f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''} |")
         else:
-            lines.append("_(no columns found)_")
+            lines.append("_(no columns found for this table)_")
+
         return "\n".join(lines)
     except Exception as exc:
         logger.warning("Schema fetch failed for '%s': %s", table_name, exc)
