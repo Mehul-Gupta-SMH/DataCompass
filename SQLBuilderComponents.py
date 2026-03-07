@@ -146,10 +146,10 @@ class SQLBuilderSupport:
             targetTable = tables['target']
 
             if sourceTable not in self.table_list["direct"].keys() and sourceTable not in self.table_list["intermediate"].keys():
-                self.table_list["intermediate"] = {sourceTable : { "description": "", "columns": {} } }
+                self.table_list["intermediate"][sourceTable] = { "description": "", "columns": {} }
 
             if targetTable not in self.table_list["direct"].keys() and targetTable not in self.table_list["intermediate"].keys():
-                self.table_list["intermediate"] = {targetTable : { "description": "", "columns": {} } }
+                self.table_list["intermediate"][targetTable] = { "description": "", "columns": {} }
 
 
     def __getInterTablesDesc__(self):
@@ -160,8 +160,13 @@ class SQLBuilderSupport:
             dict: A dictionary containing descriptions for intermediate tables.
         """
         # Updating descriptions for intermediate tables
-        for table,_ in self.table_list["intermediate"].items():
-            self.table_list["intermediate"][table]["description"] = self.DBObj.get_data( tableName=self.tmddb_config['tableDescName'], lookupDict={'tableName':table}, lookupVal=['Desc',] )
+        for table, _ in self.table_list["intermediate"].items():
+            desc_row = self.DBObj.get_data(
+                tableName=self.tmddb_config['tableDescName'],
+                lookupDict={'tableName': table},
+                lookupVal=['Desc'],
+            )
+            self.table_list["intermediate"][table]["description"] = desc_row[0] if desc_row else ""
 
     def __filterAdditionalColumns__(self, col_tuples: list) -> list:
         """

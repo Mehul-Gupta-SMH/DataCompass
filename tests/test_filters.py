@@ -203,5 +203,127 @@ class TestBM25Cache(unittest.TestCase):
         self.assertEqual(_build_bm25.cache_info().misses, 1)
 
 
+# ---------------------------------------------------------------------------
+# __getTableRelations__ — intermediate table bookkeeping
+# ---------------------------------------------------------------------------
+
+class TestGetTableRelations(unittest.TestCase):
+    """Regression tests for the overwrite bug in __getTableRelations__.
+
+    Previously the code did:
+        self.table_list["intermediate"] = {table: ...}
+    which replaced the entire dict on each iteration, so only the last
+    intermediate table survived.  The fix uses:
+        self.table_list["intermediate"][table] = ...
+    """
+
+    def _make_support_with_direct(self, direct_tables):
+        obj = _make_support()
+        obj.table_list["direct"] = {t: {"description": "", "columns": {}} for t in direct_tables}
+        return obj
+
+    @patch("SQLBuilderComponents.ManageRelations.Relations")
+    def test_single_intermediate_table_is_stored(self, MockRelations):
+        MockRelations.return_value.getRelation.return_value = [
+            {"source": "customers", "target": "orders", "edge_attributes": {}}
+        ]
+        obj = self._make_support_with_direct(["orders"])
+        obj.__getTableRelations__()
+        self.assertIn("customers", obj.table_list["intermediate"])
+
+    @patch("SQLBuilderComponents.ManageRelations.Relations")
+    def test_multiple_intermediate_tables_all_stored(self, MockRelations):
+        """All intermediate tables from multiple JOINs must be present — not just the last."""
+        MockRelations.return_value.getRelation.return_value = [
+            {"source": "customers", "target": "orders",   "edge_attributes": {}},
+            {"source": "products",  "target": "orders",   "edge_attributes": {}},
+            {"source": "regions",   "target": "customers","edge_attributes": {}},
+        ]
+        obj = self._make_support_with_direct(["orders"])
+        obj.__getTableRelations__()
+
+        inter = obj.table_list["intermediate"]
+        self.assertIn("customers", inter, "customers missing from intermediate")
+        self.assertIn("products",  inter, "products missing from intermediate")
+        self.assertIn("regions",   inter, "regions missing from intermediate")
+
+    @patch("SQLBuilderComponents.ManageRelations.Relations")
+    def test_direct_tables_not_duplicated_in_intermediate(self, MockRelations):
+        MockRelations.return_value.getRelation.return_value = [
+            {"source": "orders", "target": "customers", "edge_attributes": {}}
+        ]
+        obj = self._make_support_with_direct(["orders", "customers"])
+        obj.__getTableRelations__()
+        self.assertNotIn("orders",    obj.table_list["intermediate"])
+        self.assertNotIn("customers", obj.table_list["intermediate"])
+
+    @patch("SQLBuilderComponents.ManageRelations.Relations")
+    def test_intermediate_table_not_added_twice(self, MockRelations):
+        """Same intermediate table referenced by two JOINs should appear only once."""
+        MockRelations.return_value.getRelation.return_value = [
+            {"source": "shared", "target": "orders",    "edge_attributes": {}},
+            {"source": "shared", "target": "customers", "edge_attributes": {}},
+        ]
+        obj = self._make_support_with_direct(["orders", "customers"])
+        obj.__getTableRelations__()
+        # Ensure it appears exactly once (dict key uniqueness guarantees this, but
+        # previous overwrite would silently drop tables — count is always 1 by dict key)
+        self.assertIn("shared", obj.table_list["intermediate"])
+        self.assertEqual(len(obj.table_list["intermediate"]), 1)
+
+
+# ---------------------------------------------------------------------------
+# __getInterTablesDesc__ — description unwrapping
+# ---------------------------------------------------------------------------
+
+class TestGetInterTablesDesc(unittest.TestCase):
+    """Verify that intermediate table descriptions are stored as plain strings."""
+
+    def test_description_is_unwrapped_from_tuple(self):
+        obj = _make_support()
+        obj.table_list["intermediate"]["customers"] = {"description": "", "columns": {}}
+        obj.tmddb_config = {"tableDescName": "tableDesc"}
+        obj.DBObj.get_data.return_value = ("Customer information",)
+
+        obj.__getInterTablesDesc__()
+
+        result = obj.table_list["intermediate"]["customers"]["description"]
+        self.assertEqual(result, "Customer information")
+        self.assertIsInstance(result, str)
+
+    def test_missing_description_falls_back_to_empty_string(self):
+        obj = _make_support()
+        obj.table_list["intermediate"]["unknown_table"] = {"description": "", "columns": {}}
+        obj.tmddb_config = {"tableDescName": "tableDesc"}
+        obj.DBObj.get_data.return_value = None
+
+        obj.__getInterTablesDesc__()
+
+        result = obj.table_list["intermediate"]["unknown_table"]["description"]
+        self.assertEqual(result, "")
+
+    def test_description_renders_as_prose_in_format_schema(self):
+        """After the fix, format_schema should output the description as plain prose."""
+        from APIManager.PromptBuilder import PromptBuilder
+
+        context = {
+            "user_query": "show orders with customer names",
+            "table_list": {
+                "direct": {},
+                "intermediate": {
+                    "customers": {
+                        "description": "Stores all customer records",
+                        "columns": [("customer_id", "INT", "PRIMARY KEY", "Customer PK")],
+                    }
+                },
+            },
+            "join_keys": [],
+        }
+        result = PromptBuilder.format_schema(context)
+        self.assertIn("Stores all customer records", result)
+        # Must not contain a tuple repr like "('Stores all customer records',)"
+        self.assertNotIn("('Stores all customer records',)", result)
+
+
 if __name__ == "__main__":
     unittest.main()
