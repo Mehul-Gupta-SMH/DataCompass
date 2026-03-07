@@ -1,0 +1,23 @@
+You are a data architect. Given the SQL DDL and sample data below, generate a data dictionary.
+
+DDL:
+<<DDL>>
+
+Sample data (first few rows):
+<<SAMPLE_DATA>>
+
+Return ONLY valid JSON — no markdown, no explanation, nothing outside the JSON object:
+{
+  "tableDesc": "Concise 1-2 sentence description of this table's business purpose.",
+  "columns": [
+    {"name": "exact_column_name_from_ddl", "desc": "Business-oriented description of this column."},
+    ...
+  ]
+}
+
+Rules:
+1. Use the exact column names as they appear in the DDL
+2. Every column in the DDL must have an entry in the columns array
+3. tableDesc should describe what business entity or process this table represents
+4. Column descriptions must be business-oriented (not just restating the data type)
+5. Return nothing outside the JSON object
