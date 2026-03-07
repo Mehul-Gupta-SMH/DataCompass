@@ -8,7 +8,6 @@
 
   "payload": {
     "model": "<<model>>",
-    "messages": [{"role": "user", "content": "<<input_text>>"}],
-    "temperature": 0.0
+    "messages": [{"role": "user", "content": "<<input_text>>"}]
   }
 }
