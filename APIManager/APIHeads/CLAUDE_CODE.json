@@ -1,0 +1,15 @@
+{
+  "endpoint" : "https://api.anthropic.com/v1/messages",
+
+  "headers": {
+    "x-api-key": "<<api_key>>",
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01"
+  },
+
+  "payload": {
+    "model": "<<model>>",
+    "max_tokens": 4096,
+    "messages": [{"role": "user", "content": "<<input_text>>"}]
+  }
+}
