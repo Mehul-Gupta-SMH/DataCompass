@@ -35,7 +35,27 @@ class PromptBuilder:
 
         elif self.prompt_type == 'generate sql':
             prompt_path = _PROMPTS_DIR / "taskGenerateSQL.txt"
-            self.expected_params = ['SCHEMA']
+            self.expected_params = ['CONVERSATION', 'SCHEMA']
+
+        elif self.prompt_type == 'generate spark sql':
+            prompt_path = _PROMPTS_DIR / "taskGenerateSparkSQL.txt"
+            self.expected_params = ['CONVERSATION', 'SCHEMA']
+
+        elif self.prompt_type == 'generate dataframe api':
+            prompt_path = _PROMPTS_DIR / "taskGenerateDataframeAPI.txt"
+            self.expected_params = ['CONVERSATION', 'SCHEMA']
+
+        elif self.prompt_type == 'generate pandas':
+            prompt_path = _PROMPTS_DIR / "taskGeneratePandas.txt"
+            self.expected_params = ['CONVERSATION', 'SCHEMA']
+
+        elif self.prompt_type == 'ingest pipeline':
+            prompt_path = _PROMPTS_DIR / "taskIngestPipeline.txt"
+            self.expected_params = ['SQL', 'SOURCE_SCHEMAS', 'COLUMN_MAPPINGS']
+
+        elif self.prompt_type == 'gather requirements':
+            prompt_path = _PROMPTS_DIR / "taskRequirementGather.txt"
+            self.expected_params = ['TABLE_DIRECTORY', 'SCHEMA', 'FETCHED_SCHEMAS', 'CONVERSATION']
 
         else:
             raise UnidentifiedPromptType(f"{self.prompt_type} : Prompt type unidentified")
@@ -79,6 +99,11 @@ class PromptBuilder:
         lines.append("")
 
         lines.append("## Database Schema")
+
+        has_tables = any(context["table_list"].get(k) for k in ("direct", "intermediate"))
+        if not has_tables:
+            lines.append("\n> No schema information was retrieved for this query. "
+                         "Generate the best query you can based on the conversation context above.")
 
         for table_type, tables in context["table_list"].items():
             label = "direct" if table_type == "direct" else "intermediate"

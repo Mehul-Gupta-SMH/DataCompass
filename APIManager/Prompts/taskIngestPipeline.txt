@@ -1,0 +1,27 @@
+You are a data engineer creating a data dictionary for the OUTPUT table of a SQL pipeline.
+
+Pipeline SQL:
+<<SQL>>
+
+Source table schemas (tables referenced in the pipeline):
+<<SOURCE_SCHEMAS>>
+
+Column mappings (target column ← source expression):
+<<COLUMN_MAPPINGS>>
+
+Return ONLY valid JSON — no markdown, no explanation, nothing outside the JSON object:
+{
+  "tableDesc": "Concise 1-2 sentence description of what the output table represents and its business purpose.",
+  "columns": [
+    {"name": "exact_target_column_name", "desc": "Business-oriented description considering the source expression and source column meanings."},
+    ...
+  ]
+}
+
+Rules:
+1. tableDesc must describe the business purpose of the derived/aggregated output table
+2. For aggregated columns (COUNT, SUM, AVG, MAX, MIN), mention what is being aggregated and over what dimension
+3. For joined/passed-through columns, describe the business meaning from the source column metadata
+4. For transformed columns (CONCAT, CASE, COALESCE, date functions), describe the resulting value's meaning
+5. Use the exact target column names from the mappings
+6. Return nothing outside the JSON object

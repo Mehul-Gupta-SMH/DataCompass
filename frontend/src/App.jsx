@@ -1,77 +1,111 @@
 import React, { useState, useEffect } from 'react'
-import QueryInput from './components/QueryInput.jsx'
-import SQLResult from './components/SQLResult.jsx'
-import QueryHistory from './components/QueryHistory.jsx'
+import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
+import LoginPage from './components/LoginPage.jsx'
+import ChatInterface from './components/ChatInterface.jsx'
+import SchemaERD from './components/SchemaERD.jsx'
+import IngestTable from './components/IngestTable.jsx'
+import DataLineage from './components/DataLineage.jsx'
 
-export default function App() {
-  const [providers, setProviders] = useState([])
-  const [provider, setProvider] = useState('')
-  const [query, setQuery] = useState('')
-  const [sql, setSql] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [history, setHistory] = useState([])
+const tabStyle = (active) => ({
+  padding: '6px 16px',
+  border: 'none',
+  background: 'none',
+  cursor: 'pointer',
+  fontWeight: active ? 600 : 400,
+  color: active ? '#2563eb' : '#555',
+  borderBottom: active ? '2px solid #2563eb' : '2px solid transparent',
+  fontSize: 14,
+})
+
+function CompassIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#2563eb" strokeWidth="1.4">
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="12,5 14.5,12 12,19 9.5,12" fill="#2563eb" stroke="none" opacity="0.25" />
+      <polygon points="5,12 12,9.5 19,12 12,14.5" fill="#2563eb" stroke="none" />
+      <circle cx="12" cy="12" r="1.2" fill="#fff" stroke="none" />
+    </svg>
+  )
+}
+
+function AppContent() {
+  const { user, logout } = useAuth()
+  const [activeTab, setActiveTab]     = useState('query')
+  const [providers, setProviders]     = useState([])
+  const [schemaTables, setSchemaTables] = useState([])
+
+  // Redirect to login if not authenticated
+  if (!user) return <LoginPage />
 
   useEffect(() => {
     fetch('/api/providers')
       .then((r) => r.json())
-      .then((data) => {
-        setProviders(data.providers)
-        if (data.providers.length > 0) setProvider(data.providers[0])
-      })
-      .catch(() => setError('Failed to load providers from backend.'))
+      .then((data) => setProviders(data.providers ?? []))
+      .catch(() => {})
   }, [])
 
-  async function handleSubmit() {
-    if (!query.trim()) {
-      setError('Please enter a query.')
-      return
+  useEffect(() => {
+    if (activeTab === 'lineage') {
+      fetch('/api/schema')
+        .then((r) => r.json())
+        .then((data) => setSchemaTables((data.tables ?? []).map((t) => t.name)))
+        .catch(() => {})
     }
-    setError('')
-    setSql('')
-    setLoading(true)
-    try {
-      const res = await fetch('/api/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, provider }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail ?? 'An error occurred.')
-      } else {
-        setSql(data.sql)
-        setHistory((prev) => [{ query, provider, sql: data.sql }, ...prev])
-      }
-    } catch {
-      setError('Network error — is the backend running?')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  function handleHistorySelect(entry) {
-    setQuery(entry.query)
-    setProvider(entry.provider)
-    setSql(entry.sql)
-    setError('')
-  }
+  }, [activeTab])
 
   return (
-    <div>
-      <h1>SQLCoder</h1>
-      <QueryInput
-        query={query}
-        setQuery={setQuery}
-        provider={provider}
-        setProvider={setProvider}
-        providers={providers}
-        loading={loading}
-        error={error}
-        onSubmit={handleSubmit}
-      />
-      <SQLResult sql={sql} />
-      <QueryHistory history={history} onSelect={handleHistorySelect} />
+    <div style={{ maxWidth: '98vw', margin: '0 auto', padding: '0 24px' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: '1px solid #e5e7eb', paddingBottom: 0, marginBottom: 0, paddingTop: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 10 }}>
+          <CompassIcon />
+          <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px' }}>
+            Data Compass
+          </span>
+        </div>
+
+        <nav style={{ display: 'flex', gap: 2 }}>
+          <button style={tabStyle(activeTab === 'query')}   onClick={() => setActiveTab('query')}>Query</button>
+          <button style={tabStyle(activeTab === 'schema')}  onClick={() => setActiveTab('schema')}>Schema / ERD</button>
+          <button style={tabStyle(activeTab === 'ingest')}  onClick={() => setActiveTab('ingest')}>Ingest Table</button>
+          <button style={tabStyle(activeTab === 'lineage')} onClick={() => setActiveTab('lineage')}>Data Lineage</button>
+        </nav>
+
+        {/* User info + logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10 }}>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            {user.username}
+          </span>
+          <button
+            onClick={logout}
+            style={{
+              background: 'none', border: '1px solid #e5e7eb', borderRadius: 6,
+              padding: '4px 12px', fontSize: 12, color: '#6b7280', cursor: 'pointer',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div style={{ paddingTop: 16 }}>
+        {activeTab === 'query'   && <ChatInterface providers={providers} />}
+        {activeTab === 'schema'  && <SchemaERD />}
+        {activeTab === 'ingest'  && <IngestTable providers={providers} />}
+        {activeTab === 'lineage' && <DataLineage tables={schemaTables} />}
+      </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }

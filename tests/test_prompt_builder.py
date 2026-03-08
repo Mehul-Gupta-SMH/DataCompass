@@ -138,7 +138,7 @@ class TestBuild(unittest.TestCase):
 
     @patch("builtins.open", mock_open(read_data=FAKE_TEMPLATE))
     def test_build_replaces_placeholder(self):
-        result = PromptBuilder("generate sql").build({"SCHEMA": "my schema"})
+        result = PromptBuilder("generate sql").build({"CONVERSATION": "", "SCHEMA": "my schema"})
         self.assertIn("my schema", result)
         self.assertNotIn("<<SCHEMA>>", result)
 

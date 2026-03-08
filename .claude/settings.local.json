@@ -8,7 +8,26 @@
       "Bash(git checkout:*)",
       "Bash(git pull:*)",
       "Bash(git revert:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(cd:*)",
+      "Bash(find:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(venv/Scripts/uvicorn:*)",
+      "Bash(git branch:*)",
+      "Bash(git rebase:*)",
+      "Bash(pip install:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(npm test)",
+      "Bash(python:*)",
+      "Bash(echo:*)",
+      "Bash(npm run build:*)",
+      "Bash(ls \"C:\\\\Users\\\\mehul\\\\Documents\\\\Projects - GIT\\\\Agents\\\\SQLCoder\\\\backend\\\\__pycache__\"\" 2>/dev/null && echo \"---\" && ls \"C:UsersmehulDocumentsProjects - GITAgentsSQLCoderbackend\"\")",
+      "Bash(curl:*)",
+      "Bash(cmd /c \"for /f \"\"tokens=5\"\" %a in \\(''netstat -ano ^| findstr :8000 ^| findstr LISTENING''\\) do taskkill /F /PID %a\")",
+      "Bash(cmd /c \"netstat -ano | findstr :8000 | findstr LISTENING\")",
+      "Bash(cmd /c \"netstat -ano | findstr :8000\")"
     ]
   }
 }

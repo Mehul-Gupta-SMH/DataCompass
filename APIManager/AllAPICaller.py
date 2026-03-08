@@ -20,6 +20,7 @@ Methods:
 
 import json
 import logging
+import subprocess
 import time
 import requests
 import yaml
@@ -41,14 +42,17 @@ class CallLLMApi:
         llmService (str): The LLM service to be used (e.g., "OpenAI", "Anthropic").
         api_temp_dict (dict): The API dictionary containing endpoint, headers, and payload.
     """
-    def __init__(self, llmService = "OpenAI"):
+    def __init__(self, llmService="OpenAI", model=None):
         """
         Initializes an instance of CallLLMApi class.
 
         Args:
             llmService (str, optional): The LLM service to be used. Defaults to "OpenAI".
+            model (str, optional): Model name override. When provided, overrides the
+                model_name from model_access_config.YAML for this call only.
         """
         self.llmService = llmService
+        self.model_override = model
         self.api_temp_dict = None
         self.__set_apidict__(llmService)
 
@@ -65,15 +69,22 @@ class CallLLMApi:
 
         model_config_path = get_config_val("model_config", ["model_config","path"])
 
-        # Get model configuration from the config file
-        with open(model_config_path,"r") as model_config_FObj:
-            model_config = yaml.load(model_config_FObj,yaml.FullLoader)[str(llmService).upper()]
+        with open(model_config_path, "r") as model_config_FObj:
+            model_config = yaml.load(model_config_FObj, yaml.FullLoader)[str(llmService).upper()]
 
-        # Load API calling template
-        with open(model_config["api_template"],"r") as api_temp_fobj:
+        # Resolve effective model: explicit override wins, else YAML default
+        effective_model = self.model_override or model_config.get("model_name", "")
+
+        # claude_code uses the local CLI — no HTTP template needed
+        if llmService.lower() == "claude_code":
+            self.api_temp_dict = {"model": effective_model or "claude-sonnet-4-5"}
+            return
+
+        # Load API calling template for HTTP-based providers
+        with open(model_config["api_template"], "r") as api_temp_fobj:
             api_temp_str = api_temp_fobj.read()
-            api_temp_str = api_temp_str.replace("<<api_key>>",model_config["api_key"])
-            api_temp_str = api_temp_str.replace("<<model>>",model_config["model_name"])
+            api_temp_str = api_temp_str.replace("<<api_key>>", model_config["api_key"])
+            api_temp_str = api_temp_str.replace("<<model>>", effective_model)
 
         # Convert API template string to dictionary
         self.api_temp_dict = json.loads(api_temp_str)
@@ -95,18 +106,70 @@ class CallLLMApi:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be a non-empty string.")
 
-        if self.llmService.lower() in ("open_ai","groq"):
-            # Update the payload with the prompt for OpenAI API
+        # ------------------------------------------------------------------ #
+        # claude_code — delegate to the local Claude Code CLI                 #
+        # ------------------------------------------------------------------ #
+        if self.llmService.lower() == "claude_code":
+            import json as _json
+            model = self.api_temp_dict.get("model", "claude-sonnet-4-5")
+            try:
+                # Pass the full task prompt as --system-prompt so Claude treats it
+                # as operating instructions rather than user-pasted content.
+                # A neutral -p trigger activates the response without framing the
+                # prompt as something the "user" typed into the chat.
+                result = subprocess.run(
+                    [
+                        "claude", "-p", "Execute the task as specified.",
+                        "--system-prompt", prompt,
+                        "--model", model,
+                        "--output-format", "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                )
+            except FileNotFoundError:
+                raise ValueError(
+                    "Claude Code CLI not found. "
+                    "Install it with: npm install -g @anthropic-ai/claude-code"
+                )
+            except subprocess.TimeoutExpired:
+                raise ValueError("Claude Code CLI timed out after 120 seconds.")
+
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip()
+                raise ValueError(f"Claude Code CLI exited with error: {err[:300]}")
+
+            # Parse JSON response to extract text and record token usage
+            try:
+                data = _json.loads(result.stdout)
+                text_out = data.get("result", result.stdout).strip()
+                usage = data.get("usage") or {}
+                cost  = data.get("cost_usd") or 0.0
+                try:
+                    from backend.usage_tracker import record_claude_code
+                    record_claude_code(
+                        input_tokens=int(usage.get("input_tokens", 0)),
+                        output_tokens=int(usage.get("output_tokens", 0)),
+                        cost_usd=float(cost),
+                    )
+                except Exception:
+                    pass  # tracking is best-effort
+            except (_json.JSONDecodeError, AttributeError):
+                text_out = result.stdout.strip()
+
+            return text_out
+
+        # ------------------------------------------------------------------ #
+        # HTTP-based providers                                                 #
+        # ------------------------------------------------------------------ #
+        if self.llmService.lower() in ("open_ai", "groq", "codex", "anthropic"):
             self.api_temp_dict["payload"]["messages"][0]["content"] = prompt
 
-        if self.llmService.lower() == "anthropic":
-            # Update the payload with the prompt for Anthropic AI API
-            self.api_temp_dict["payload"]["prompt"] = self.api_temp_dict["payload"]["prompt"].replace("<<input_text>>",prompt)
-
         if self.llmService.lower() == "google":
-            # Update the payload with the prompt for Google API
             self.api_temp_dict["payload"]["contents"][0]["parts"][0]["text"] = prompt
-
 
         # Make the API call with exponential backoff retry for transient errors
         for attempt in range(1, _MAX_RETRIES + 1):
@@ -119,10 +182,10 @@ class CallLLMApi:
 
             if response.status_code == 200:
                 data = response.json()
-                if self.llmService.lower() in ("open_ai", "groq"):
+                if self.llmService.lower() in ("open_ai", "groq", "codex"):
                     return data['choices'][0]['message']['content']
                 if self.llmService.lower() == "anthropic":
-                    return data['completion']
+                    return data['content'][0]['text']
                 if self.llmService.lower() == "google":
                     return data['candidates'][0]['content']['parts'][0]['text']
 
@@ -136,9 +199,23 @@ class CallLLMApi:
                     time.sleep(delay)
                     continue
 
-            # Non-retryable error or retries exhausted
+            # Non-retryable error — surface billing errors clearly
+            detail = response.text[:300]
+            try:
+                err_msg = response.json().get("error", {})
+                if isinstance(err_msg, dict):
+                    err_msg = err_msg.get("message", "")
+                if "credit" in str(err_msg).lower() or "billing" in str(err_msg).lower() or "balance" in str(err_msg).lower():
+                    raise ValueError(
+                        f"Provider '{self.llmService}' has no remaining credits. "
+                        "Please top up your account or switch to a different provider."
+                    )
+            except ValueError:
+                raise
+            except Exception:
+                pass
             raise ValueError(
                 f"LLM API call failed after {attempt} attempt(s). "
-                f"Status code: {response.status_code} — {response.text[:200]}"
+                f"Status code: {response.status_code} — {detail}"
             )
 

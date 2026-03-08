@@ -64,11 +64,21 @@ export default function QueryInput({
   loading,
   error,
   onSubmit,
+  queryType,
+  setQueryType,
 }) {
   function handleSubmit(e) {
     e.preventDefault()
     onSubmit()
   }
+
+  const btnLabel = loading
+    ? 'Generating…'
+    : queryType === 'dataframe_api'
+    ? 'Generate DataFrame Code'
+    : queryType === 'spark_sql'
+    ? 'Generate Spark SQL'
+    : 'Generate SQL'
 
   return (
     <form style={styles.form} onSubmit={handleSubmit}>
@@ -92,8 +102,18 @@ export default function QueryInput({
             </option>
           ))}
         </select>
+        <select
+          style={styles.select}
+          value={queryType}
+          onChange={(e) => setQueryType(e.target.value)}
+          disabled={loading}
+        >
+          <option value="sql">SQL</option>
+          <option value="spark_sql">Spark SQL</option>
+          <option value="dataframe_api">DataFrame API</option>
+        </select>
         <button style={styles.submitBtn} type="submit" disabled={loading}>
-          {loading ? 'Generating…' : 'Generate SQL'}
+          {btnLabel}
         </button>
         {loading && <span style={styles.spinner}>Please wait…</span>}
       </div>

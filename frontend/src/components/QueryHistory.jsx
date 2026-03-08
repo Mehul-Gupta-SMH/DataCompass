@@ -76,7 +76,9 @@ function HistoryItem({ entry, onSelect }) {
       title="Click to restore this query"
     >
       <div style={styles.queryText}>{entry.query}</div>
-      <div style={styles.meta}>Provider: {entry.provider}</div>
+      <div style={styles.meta}>
+        Provider: {entry.provider} | Type: {entry.queryType ?? 'sql'}
+      </div>
       <pre style={styles.sqlPreview}>{entry.sql}</pre>
     </li>
   )
