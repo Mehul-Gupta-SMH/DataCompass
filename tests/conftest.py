@@ -25,3 +25,14 @@ _HEAVY_MODULES = [
 for _mod in _HEAVY_MODULES:
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()
+
+# ---------------------------------------------------------------------------
+# Override the auth dependency so protected endpoints work in tests without
+# a real JWT token.
+# ---------------------------------------------------------------------------
+from backend.app import app
+from backend.auth import get_current_user
+
+_FAKE_USER = {"sub": "testuser", "uid": 1}
+
+app.dependency_overrides[get_current_user] = lambda: _FAKE_USER

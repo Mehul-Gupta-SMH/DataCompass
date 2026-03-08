@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse, HTMLResponse
 from pydantic import BaseModel
 
 from main import generateQuery, gatherRequirements, SQLValidationError, _VALID_PROVIDERS
@@ -136,6 +137,40 @@ def me(user: dict = Depends(get_current_user)):
     return {"username": user["sub"], "id": user["uid"]}
 
 
+@app.get("/auth/google/enabled")
+def google_sso_status():
+    from backend.auth import google_sso_enabled
+    return {"enabled": google_sso_enabled()}
+
+
+@app.get("/auth/google")
+def google_sso_start():
+    """Redirect the browser to Google's OAuth2 consent page."""
+    from backend.auth import google_sso_enabled, google_auth_url
+    if not google_sso_enabled():
+        raise HTTPException(status_code=503, detail="Google SSO is not configured.")
+    return RedirectResponse(google_auth_url())
+
+
+@app.get("/auth/google/callback")
+def google_sso_callback(code: str = "", error: str = ""):
+    """Handle the OAuth2 callback from Google."""
+    from backend.auth import google_callback, _frontend_url
+    frontend = _frontend_url()
+
+    if error or not code:
+        # Redirect to frontend with an error fragment
+        return RedirectResponse(f"{frontend}/#sso_error={error or 'missing_code'}")
+
+    try:
+        token = google_callback(code)
+    except HTTPException as exc:
+        return RedirectResponse(f"{frontend}/#sso_error={exc.detail}")
+
+    # Redirect to frontend; the JS picks up the token from the URL hash
+    return RedirectResponse(f"{frontend}/#sso_token={token}")
+
+
 # ---------------------------------------------------------------------------
 # Session endpoints  (protected — per-user chat history)
 # ---------------------------------------------------------------------------
@@ -238,7 +273,7 @@ def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
 
 
 @app.post("/api/execute")
-def post_execute(body: ExecuteRequest):
+def post_execute(body: ExecuteRequest, user: dict = Depends(get_current_user)):
     from backend.executor import execute_query
     try:
         columns, rows = execute_query(body.generated_query, body.query_type, body.connection_string)
@@ -291,7 +326,7 @@ def get_schema():
 # ---------------------------------------------------------------------------
 
 @app.post("/api/ingest/preview")
-def post_ingest_preview(body: IngestPreviewRequest):
+def post_ingest_preview(body: IngestPreviewRequest, user: dict = Depends(get_current_user)):
     """
     Parse a data pipeline SQL (INSERT...SELECT or CTAS), look up source table schemas,
     call the LLM to generate the target table data dictionary, and return a preview
@@ -345,7 +380,7 @@ def post_ingest_preview(body: IngestPreviewRequest):
 
 
 @app.post("/api/ingest/commit")
-def post_ingest_commit(body: IngestCommitRequest):
+def post_ingest_commit(body: IngestCommitRequest, user: dict = Depends(get_current_user)):
     """
     Store the reviewed table metadata to SQLite, ChromaDB, and NetworkX.
     """

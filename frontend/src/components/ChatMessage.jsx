@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { apiFetch } from '../utils/api.js'
 
 // ---------------------------------------------------------------------------
 // Run-query section embedded inside SQL messages
@@ -45,9 +46,8 @@ function RunQueryPanel({ content, queryType }) {
     setResult(null)
     setLoading(true)
     try {
-      const res = await fetch('/api/execute', {
+      const res = await apiFetch('/api/execute', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ generated_query: content, query_type: queryType, connection_string: connStr }),
       })
       const data = await res.json()

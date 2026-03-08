@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import ChatMessage from './ChatMessage.jsx'
 import { PROVIDER_LABELS, formatProviderLabel } from '../constants/providerLabels.js'
+import { apiFetch } from '../utils/api.js'
 
 const QUERY_TYPE_LABELS = {
   sql: 'SQL',
@@ -9,19 +10,10 @@ const QUERY_TYPE_LABELS = {
   pandas: 'Pandas',
 }
 
-const STORAGE_KEY = 'data_compass_sessions'
 const MAX_SESSIONS = 30
 
 let _msgId = 0
 function nextId() { return ++_msgId }
-
-function loadSessions() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
-}
-
-function saveSessions(sessions) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions)) } catch {}
-}
 
 function formatTimestamp(ts) {
   const d = new Date(ts)
@@ -125,10 +117,11 @@ export default function ChatInterface({ providers }) {
   const [queryType, setQueryType] = useState('sql')
   const [loading, setLoading] = useState(false)
   const [balances, setBalances] = useState({})
-  const [sessions, setSessions] = useState(() => loadSessions())
+  const [sessions, setSessions] = useState([])
   const [currentSessionId, setCurrentSessionId] = useState(null)
-  const bottomRef = useRef(null)
-  const sessionIdRef = useRef(null)   // stable ref avoids stale closure issues
+  const bottomRef       = useRef(null)
+  const sessionIdRef    = useRef(null)
+  const skipNextSaveRef = useRef(false)  // skip auto-save when loading a session
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -149,30 +142,45 @@ export default function ChatInterface({ providers }) {
       .catch(() => {})
   }, [providers])
 
-  // Auto-save session whenever messages change
+  // Load sessions from server on mount
+  useEffect(() => {
+    apiFetch('/api/sessions')
+      .then((r) => r.json())
+      .then((data) => setSessions(data.sessions ?? []))
+      .catch(() => {})
+  }, [])
+
+  // Auto-save current session to server whenever messages change
   useEffect(() => {
     if (!messages.length || !sessionIdRef.current) return
-    const title = (messages.find((m) => m.role === 'user')?.content ?? 'Conversation').slice(0, 55)
+    if (skipNextSaveRef.current) { skipNextSaveRef.current = false; return }
+
+    const title    = (messages.find((m) => m.role === 'user')?.content ?? 'Conversation').slice(0, 55)
+    const existing = sessions.find((s) => s.id === sessionIdRef.current)
+    const entry    = {
+      id:        sessionIdRef.current,
+      title,
+      timestamp: existing?.timestamp ?? Date.now(),
+      messages,
+      provider,
+      queryType,
+    }
+
     setSessions((prev) => {
-      const existing = prev.find((s) => s.id === sessionIdRef.current)
-      const entry = {
-        id: sessionIdRef.current,
-        title,
-        timestamp: existing?.timestamp ?? Date.now(),
-        messages,
-        provider,
-        queryType,
-      }
       const others = prev.filter((s) => s.id !== sessionIdRef.current)
-      const next = [entry, ...others].slice(0, MAX_SESSIONS)
-      saveSessions(next)
-      return next
+      return [entry, ...others].slice(0, MAX_SESSIONS)
     })
+
+    apiFetch('/api/sessions', {
+      method: 'POST',
+      body:   JSON.stringify(entry),
+    }).catch(() => {})
   }, [messages])
 
   // ---- Session management -----------------------------------------------
 
   function handleNewChat() {
+    skipNextSaveRef.current = true
     setMessages([])
     setCurrentSessionId(null)
     sessionIdRef.current = null
@@ -180,6 +188,7 @@ export default function ChatInterface({ providers }) {
   }
 
   function handleSelectSession(session) {
+    skipNextSaveRef.current = true
     setMessages(session.messages)
     setProvider(session.provider)
     setQueryType(session.queryType)
@@ -188,11 +197,8 @@ export default function ChatInterface({ providers }) {
   }
 
   function handleDeleteSession(id) {
-    setSessions((prev) => {
-      const next = prev.filter((s) => s.id !== id)
-      saveSessions(next)
-      return next
-    })
+    setSessions((prev) => prev.filter((s) => s.id !== id))
+    apiFetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {})
     if (sessionIdRef.current === id) handleNewChat()
   }
 
@@ -214,9 +220,8 @@ export default function ChatInterface({ providers }) {
   async function _callApi(history, prov, qType, retryLabel) {
     setLoading(true)
     try {
-      const res = await fetch('/api/chat', {
+      const res = await apiFetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: history, provider: prov, query_type: qType }),
       })
       const data = await res.json()

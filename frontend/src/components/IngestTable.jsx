@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { formatProviderLabel } from '../constants/providerLabels.js'
+import { apiFetch } from '../utils/api.js'
 
 const s = {
   card: {
@@ -183,9 +184,8 @@ export default function IngestTable({ providers }) {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('/api/ingest/preview', {
+      const res = await apiFetch('/api/ingest/preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql, provider }),
       })
       const data = await res.json()
@@ -208,9 +208,8 @@ export default function IngestTable({ providers }) {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('/api/ingest/commit', {
+      const res = await apiFetch('/api/ingest/commit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table_name: tableName, table_desc: tableDesc, columns, relationships }),
       })
       const data = await res.json()

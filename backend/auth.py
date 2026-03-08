@@ -15,6 +15,7 @@ import hmac as _hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlencode
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -50,12 +51,24 @@ def init_db() -> None:
     with _conn() as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id       INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT    UNIQUE NOT NULL COLLATE NOCASE,
-                pw_hash  TEXT    NOT NULL,
-                created  TEXT    NOT NULL
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                username   TEXT    UNIQUE NOT NULL COLLATE NOCASE,
+                pw_hash    TEXT    NOT NULL DEFAULT '',
+                created    TEXT    NOT NULL,
+                google_sub TEXT,
+                email      TEXT
             )
         """)
+        # Migrations: add Google SSO columns to existing databases
+        for col_def in ["google_sub TEXT", "email TEXT"]:
+            try:
+                c.execute(f"ALTER TABLE users ADD COLUMN {col_def}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub "
+            "ON users(google_sub) WHERE google_sub IS NOT NULL"
+        )
         c.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id         TEXT    PRIMARY KEY,
@@ -219,3 +232,120 @@ def delete_session(user_id: int, session_id: str) -> None:
             "DELETE FROM sessions WHERE id = ? AND user_id = ?",
             (session_id, user_id),
         )
+
+
+# ---------------------------------------------------------------------------
+# Google SSO utilities
+# ---------------------------------------------------------------------------
+
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+
+# Read from environment at call-time so unit tests can patch os.environ
+def _google_client_id() -> str:
+    return os.environ.get("GOOGLE_CLIENT_ID", "")
+
+def _google_client_secret() -> str:
+    return os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+def _google_redirect_uri() -> str:
+    return os.environ.get("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+
+def _frontend_url() -> str:
+    return os.environ.get("FRONTEND_URL", "http://localhost:5173")
+
+
+def google_sso_enabled() -> bool:
+    """True when Google OAuth2 credentials are configured."""
+    return bool(_google_client_id() and _google_client_secret())
+
+
+def google_auth_url() -> str:
+    """Return the Google OAuth2 authorization URL to redirect the user to."""
+    params = {
+        "client_id":     _google_client_id(),
+        "redirect_uri":  _google_redirect_uri(),
+        "response_type": "code",
+        "scope":         "openid email profile",
+        "access_type":   "offline",
+        "prompt":        "select_account",
+    }
+    return f"{_GOOGLE_AUTH_URL}?{urlencode(params)}"
+
+
+def google_callback(code: str) -> str:
+    """
+    Exchange an auth code for tokens, verify the ID token, upsert the user,
+    and return a JWT access token.
+
+    Raises HTTPException on any error.
+    """
+    import requests as _req
+
+    client_id     = _google_client_id()
+    client_secret = _google_client_secret()
+    redirect_uri  = _google_redirect_uri()
+
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=503, detail="Google SSO is not configured.")
+
+    # 1. Exchange code for tokens
+    try:
+        token_resp = _req.post(_GOOGLE_TOKEN_URL, data={
+            "code":          code,
+            "client_id":     client_id,
+            "client_secret": client_secret,
+            "redirect_uri":  redirect_uri,
+            "grant_type":    "authorization_code",
+        }, timeout=10)
+        token_resp.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Google token exchange failed: {exc}")
+
+    tokens = token_resp.json()
+    id_token_str = tokens.get("id_token")
+    if not id_token_str:
+        raise HTTPException(status_code=502, detail="No id_token in Google response.")
+
+    # 2. Verify the ID token using google-auth
+    try:
+        from google.oauth2 import id_token as _id_token
+        from google.auth.transport import requests as _greq
+        id_info = _id_token.verify_oauth2_token(id_token_str, _greq.Request(), client_id)
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail=f"Google ID token verification failed: {exc}")
+
+    google_sub = id_info.get("sub")
+    email      = id_info.get("email", "")
+    name       = id_info.get("name", email.split("@")[0] if email else "user")
+
+    if not google_sub:
+        raise HTTPException(status_code=401, detail="Google ID token missing 'sub' claim.")
+
+    # 3. Upsert user and issue JWT
+    user = _upsert_google_user(google_sub, email, name)
+    return create_token(user)
+
+
+def _upsert_google_user(google_sub: str, email: str, name: str) -> dict:
+    """Find or create a user by Google sub. Returns {id, username}."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT id, username FROM users WHERE google_sub = ?", (google_sub,)
+        ).fetchone()
+        if row:
+            return {"id": row["id"], "username": row["username"]}
+
+        # New user — derive username from name/email, ensure uniqueness
+        base = (name or email.split("@")[0] or "user").replace(" ", "_").lower()
+        username = base
+        i = 1
+        while c.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone():
+            username = f"{base}{i}"
+            i += 1
+
+        cur = c.execute(
+            "INSERT INTO users (username, pw_hash, google_sub, email, created) VALUES (?,?,?,?,?)",
+            (username, "", google_sub, email, datetime.now(timezone.utc).isoformat()),
+        )
+        return {"id": cur.lastrowid, "username": username}

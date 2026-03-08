@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react'
+import { AuthProvider, useAuth } from './contexts/AuthContext.jsx'
+import LoginPage from './components/LoginPage.jsx'
 import ChatInterface from './components/ChatInterface.jsx'
 import SchemaERD from './components/SchemaERD.jsx'
 import IngestTable from './components/IngestTable.jsx'
@@ -26,10 +28,14 @@ function CompassIcon() {
   )
 }
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState('query')
-  const [providers, setProviders] = useState([])
+function AppContent() {
+  const { user, logout } = useAuth()
+  const [activeTab, setActiveTab]     = useState('query')
+  const [providers, setProviders]     = useState([])
   const [schemaTables, setSchemaTables] = useState([])
+
+  // Redirect to login if not authenticated
+  if (!user) return <LoginPage />
 
   useEffect(() => {
     fetch('/api/providers')
@@ -50,37 +56,39 @@ export default function App() {
   return (
     <div style={{ maxWidth: '98vw', margin: '0 auto', padding: '0 24px' }}>
       {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid #e5e7eb',
-          paddingBottom: 0,
-          marginBottom: 0,
-          paddingTop: 12,
-        }}
-      >
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        borderBottom: '1px solid #e5e7eb', paddingBottom: 0, marginBottom: 0, paddingTop: 12,
+      }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 10 }}>
           <CompassIcon />
           <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px' }}>
             Data Compass
           </span>
         </div>
+
         <nav style={{ display: 'flex', gap: 2 }}>
-          <button style={tabStyle(activeTab === 'query')} onClick={() => setActiveTab('query')}>
-            Query
-          </button>
-          <button style={tabStyle(activeTab === 'schema')} onClick={() => setActiveTab('schema')}>
-            Schema / ERD
-          </button>
-          <button style={tabStyle(activeTab === 'ingest')} onClick={() => setActiveTab('ingest')}>
-            Ingest Table
-          </button>
-          <button style={tabStyle(activeTab === 'lineage')} onClick={() => setActiveTab('lineage')}>
-            Data Lineage
-          </button>
+          <button style={tabStyle(activeTab === 'query')}   onClick={() => setActiveTab('query')}>Query</button>
+          <button style={tabStyle(activeTab === 'schema')}  onClick={() => setActiveTab('schema')}>Schema / ERD</button>
+          <button style={tabStyle(activeTab === 'ingest')}  onClick={() => setActiveTab('ingest')}>Ingest Table</button>
+          <button style={tabStyle(activeTab === 'lineage')} onClick={() => setActiveTab('lineage')}>Data Lineage</button>
         </nav>
+
+        {/* User info + logout */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10 }}>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>
+            {user.username}
+          </span>
+          <button
+            onClick={logout}
+            style={{
+              background: 'none', border: '1px solid #e5e7eb', borderRadius: 6,
+              padding: '4px 12px', fontSize: 12, color: '#6b7280', cursor: 'pointer',
+            }}
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Tab content */}
@@ -91,5 +99,13 @@ export default function App() {
         {activeTab === 'lineage' && <DataLineage tables={schemaTables} />}
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   )
 }
