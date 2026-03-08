@@ -69,6 +69,32 @@ describe('ChatInterface provider balance display', () => {
   })
 })
 
+describe('ChatInterface Codex dropdown', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      json: () => Promise.resolve({
+        balances: {
+          codex: { label: '$0.03', available: true },
+        },
+      }),
+    })))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders Codex option with formatted label', async () => {
+    render(<ChatInterface providers={['codex']} />)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('option', { name: /OpenAI Codex\s+—\s+\$0\.03/ }),
+      ).toBeInTheDocument()
+    })
+  })
+})
+
 describe('ChatMessage clarify options', () => {
   it('shows clarify options as pills and forwards clicks', async () => {
     const handleOptionSelect = vi.fn()
