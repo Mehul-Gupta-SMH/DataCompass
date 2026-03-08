@@ -168,34 +168,6 @@ class CallLLMApi:
             return text_out
 
         # ------------------------------------------------------------------ #
-        # codex_cli — delegate to the local OpenAI Codex CLI                  #
-        # ------------------------------------------------------------------ #
-        if self.llmService.lower() == "codex_cli":
-            model = self.api_temp_dict.get("model", "codex-mini-latest")
-            try:
-                result = subprocess.run(
-                    ["codex", "-q", "--model", model, prompt],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=120,
-                )
-            except FileNotFoundError:
-                raise ValueError(
-                    "OpenAI Codex CLI not found. "
-                    "Install it with: npm install -g @openai/codex"
-                )
-            except subprocess.TimeoutExpired:
-                raise ValueError("OpenAI Codex CLI timed out after 120 seconds.")
-
-            if result.returncode != 0:
-                err = result.stderr.strip() or result.stdout.strip()
-                raise ValueError(f"OpenAI Codex CLI exited with error: {err[:300]}")
-
-            return result.stdout.strip()
-
-        # ------------------------------------------------------------------ #
         # HTTP-based providers                                                 #
         # ------------------------------------------------------------------ #
         if self.llmService.lower() in ("open_ai", "groq", "codex", "anthropic"):

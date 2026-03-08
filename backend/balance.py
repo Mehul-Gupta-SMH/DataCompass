@@ -254,30 +254,6 @@ def _check_claude_code(_api_key: str) -> dict:
             "label": "CLI not installed"}
 
 
-def _check_codex_cli(_api_key: str) -> dict:
-    """
-    codex_cli uses the local OpenAI Codex CLI, not an API key.
-    Check that the `codex` executable is installed.
-    """
-    try:
-        result = subprocess.run(
-            ["codex", "--version"],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            version = result.stdout.strip().split("\n")[0]
-            return {"balance": None, "currency": None,
-                    "available": True, "status": "ok", "label": f"CLI {version}"}
-    except FileNotFoundError:
-        pass
-    except subprocess.TimeoutExpired:
-        pass
-
-    return {"balance": None, "currency": None,
-            "available": False, "status": "unavailable",
-            "label": "CLI not installed"}
-
-
 _CHECKERS = {
     "open_ai":    _check_openai,
     "anthropic":  _check_anthropic,
@@ -285,7 +261,6 @@ _CHECKERS = {
     "google":     _check_google,
     "codex":      _check_openai,       # same OpenAI key / billing as open_ai
     "claude_code": _check_claude_code, # CLI availability check — no API key needed
-    "codex_cli":  _check_codex_cli,    # CLI availability check — no API key needed
 }
 
 
