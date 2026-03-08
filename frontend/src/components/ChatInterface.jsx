@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import ChatMessage from './ChatMessage.jsx'
-import { PROVIDER_LABELS, formatProviderLabel } from '../constants/providerLabels.js'
+import { PROVIDER_LABELS, PROVIDER_MODELS, formatProviderLabel, defaultModel } from '../constants/providerLabels.js'
 import { apiFetch } from '../utils/api.js'
 
 const QUERY_TYPE_LABELS = {
@@ -114,6 +114,7 @@ export default function ChatInterface({ providers }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [provider, setProvider] = useState(providers[0] ?? '')
+  const [model, setModel] = useState(() => defaultModel(providers[0] ?? ''))
   const [queryType, setQueryType] = useState('sql')
   const [loading, setLoading] = useState(false)
   const [balances, setBalances] = useState({})
@@ -128,9 +129,12 @@ export default function ChatInterface({ providers }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
 
-  // Sync provider when list first loads
+  // Sync provider (and default model) when list first loads
   useEffect(() => {
-    if (providers.length && !provider) setProvider(providers[0])
+    if (providers.length && !provider) {
+      setProvider(providers[0])
+      setModel(defaultModel(providers[0]))
+    }
   }, [providers])
 
   // Fetch provider balances
@@ -163,6 +167,7 @@ export default function ChatInterface({ providers }) {
       timestamp: existing?.timestamp ?? Date.now(),
       messages,
       provider,
+      model,
       queryType,
     }
 
@@ -191,6 +196,7 @@ export default function ChatInterface({ providers }) {
     skipNextSaveRef.current = true
     setMessages(session.messages)
     setProvider(session.provider)
+    setModel(session.model ?? defaultModel(session.provider))
     setQueryType(session.queryType)
     setCurrentSessionId(session.id)
     sessionIdRef.current = session.id
@@ -217,12 +223,12 @@ export default function ChatInterface({ providers }) {
 
   // ---- API call ----------------------------------------------------------
 
-  async function _callApi(history, prov, qType, retryLabel) {
+  async function _callApi(history, prov, qType, retryLabel, mdl) {
     setLoading(true)
     try {
       const res = await apiFetch('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ messages: history, provider: prov, query_type: qType }),
+        body: JSON.stringify({ messages: history, provider: prov, query_type: qType, model: mdl }),
       })
       const data = await res.json()
 
@@ -258,7 +264,7 @@ export default function ChatInterface({ providers }) {
     const updated = [...messages, userEntry]
     setMessages(updated)
 
-    await _callApi(buildHistory(updated), provider, queryType, text)
+    await _callApi(buildHistory(updated), provider, queryType, text, model)
   }
 
   function handleRetry(failedMsg) {
@@ -270,7 +276,7 @@ export default function ChatInterface({ providers }) {
     const retryHistory = prior
       .filter((m) => m.type === 'text')
       .map((m) => ({ role: m.role, content: m.content }))
-    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery)
+    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery, model)
   }
 
   async function handleOptionSelect(optionText) {
@@ -284,7 +290,7 @@ export default function ChatInterface({ providers }) {
     const userEntry = { id: nextId(), role: 'user', type: 'text', content: optionText }
     const updated = [...messages, userEntry]
     setMessages(updated)
-    await _callApi(buildHistory(updated), provider, queryType, optionText)
+    await _callApi(buildHistory(updated), provider, queryType, optionText, model)
   }
 
   function handleKeyDown(e) {
@@ -321,7 +327,10 @@ export default function ChatInterface({ providers }) {
           <select
             style={{ padding: '4px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            onChange={(e) => {
+              setProvider(e.target.value)
+              setModel(defaultModel(e.target.value))
+            }}
             disabled={loading}
           >
             {providers.map((p) => {
@@ -335,6 +344,22 @@ export default function ChatInterface({ providers }) {
               )
             })}
           </select>
+
+          {PROVIDER_MODELS[provider]?.length > 0 && (
+            <>
+              <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500, marginLeft: 4 }}>Model</span>
+              <select
+                style={{ padding: '4px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+                value={model ?? ''}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={loading}
+              >
+                {PROVIDER_MODELS[provider].map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </>
+          )}
 
           <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500, marginLeft: 8 }}>Mode</span>
           <select

@@ -29,3 +29,30 @@ describe('IngestTable provider dropdown', () => {
     })
   })
 })
+
+describe('IngestTable Codex option', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+      json: () => Promise.resolve({
+        balances: {
+          codex: { label: '$0.03', available: true },
+        },
+      }),
+    })))
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders the Codex provider label', async () => {
+    render(<IngestTable providers={['codex']} />)
+
+    await waitFor(() => {
+      const option = screen.getByRole('option', { name: /OpenAI Codex/ })
+      expect(option).toBeInTheDocument()
+      expect(option).toHaveTextContent('OpenAI Codex')
+      expect(option).toHaveTextContent('$0.03')
+    })
+  })
+})

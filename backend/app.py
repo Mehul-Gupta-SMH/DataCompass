@@ -1,7 +1,7 @@
 import sys
 import os
 from contextlib import asynccontextmanager
-from typing import Any, Literal, List
+from typing import Any, Literal, List, Optional
 import networkx as nx
 
 # Ensure project root is on the path so `main` can be imported directly
@@ -41,6 +41,7 @@ class QueryRequest(BaseModel):
     query: str
     provider: str
     query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
+    model: Optional[str] = None
 
 
 class ExecuteRequest(BaseModel):
@@ -58,11 +59,13 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessageItem]
     provider: str
     query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
+    model: Optional[str] = None
 
 
 class IngestPreviewRequest(BaseModel):
     sql: str
     provider: str
+    model: Optional[str] = None
 
 
 class ColumnMeta(BaseModel):
@@ -226,7 +229,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
     messages = [m.model_dump() for m in body.messages]
 
     try:
-        gather = gatherRequirements(messages, body.provider)
+        gather = gatherRequirements(messages, body.provider, model=body.model)
     except (ValueError, SQLValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -243,7 +246,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
         return clarify
 
     try:
-        result = generateQuery(gather["summary"], body.provider, body.query_type, messages)
+        result = generateQuery(gather["summary"], body.provider, body.query_type, messages, model=body.model)
     except (ValueError, SQLValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -259,7 +262,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
 @app.post("/api/query")
 def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
     try:
-        result = generateQuery(body.query, body.provider, body.query_type)
+        result = generateQuery(body.query, body.provider, body.query_type, model=body.model)
         # result = {"type": "sql"|"code"|"clarify", "content": str}
         return {
             "type": result["type"],          # "sql", "code", or "clarify"
@@ -348,7 +351,7 @@ def post_ingest_preview(body: IngestPreviewRequest, user: dict = Depends(get_cur
     mappings_str = format_column_mappings(parsed["column_mappings"])
 
     try:
-        dd = generate_pipeline_dict(body.sql, schemas_str, mappings_str, body.provider)
+        dd = generate_pipeline_dict(body.sql, schemas_str, mappings_str, body.provider, model=body.model)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"LLM error: {str(exc)}")
 

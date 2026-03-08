@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { formatProviderLabel } from '../constants/providerLabels.js'
+import { formatProviderLabel, PROVIDER_MODELS, defaultModel } from '../constants/providerLabels.js'
 import { apiFetch } from '../utils/api.js'
 
 const s = {
@@ -159,6 +159,7 @@ GROUP BY c.customer_id, c.customer_name, DATE_TRUNC('month', o.order_date);
 export default function IngestTable({ providers }) {
   const [sql, setSql] = useState('')
   const [provider, setProvider] = useState(providers[0] ?? '')
+  const [model, setModel] = useState(() => defaultModel(providers[0] ?? ''))
   const [balances, setBalances] = useState({})
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -186,7 +187,7 @@ export default function IngestTable({ providers }) {
     try {
       const res = await apiFetch('/api/ingest/preview', {
         method: 'POST',
-        body: JSON.stringify({ sql, provider }),
+        body: JSON.stringify({ sql, provider, model }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.detail ?? 'Analysis failed.'); return }
@@ -262,7 +263,10 @@ export default function IngestTable({ providers }) {
           <select
             style={s.select}
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
+            onChange={(e) => {
+              setProvider(e.target.value)
+              setModel(defaultModel(e.target.value))
+            }}
             disabled={loading}
           >
             {providers.map((p) => {
@@ -276,6 +280,18 @@ export default function IngestTable({ providers }) {
               )
             })}
           </select>
+          {PROVIDER_MODELS[provider]?.length > 0 && (
+            <select
+              style={s.select}
+              value={model ?? ''}
+              onChange={(e) => setModel(e.target.value)}
+              disabled={loading}
+            >
+              {PROVIDER_MODELS[provider].map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          )}
           <button style={s.btn()} onClick={handleAnalyze} disabled={loading}>
             {loading ? 'Analyzing…' : 'Analyze Pipeline'}
           </button>

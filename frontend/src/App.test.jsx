@@ -14,7 +14,7 @@ function mockFetch({ providersPayload, queryPayload, providersFails, queryFails 
   if (providersFails) {
     fetchMock.mockRejectedValueOnce(new Error('network'))
   } else {
-    const providers = providersPayload ?? ['anthropic', 'open_ai']
+    const providers = providersPayload ?? ['anthropic', 'codex', 'open_ai']
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve({ providers }),
@@ -60,7 +60,7 @@ describe('App', () => {
     render(<App />)
     await waitForProviders()
     const options = screen.getAllByRole('option')
-    expect(options.map((o) => o.value)).toEqual(['anthropic', 'open_ai'])
+    expect(options.map((o) => o.value)).toEqual(['anthropic', 'codex', 'open_ai'])
   })
 
   it('shows an error when the provider fetch fails', async () => {

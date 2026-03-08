@@ -186,6 +186,7 @@ def generateQuery(
     LLMservice: str,
     query_type: str = "sql",
     conversation: list = None,
+    model: str = None,
 ) -> dict:
     """
     Generates a SQL, Spark SQL, or PySpark DataFrame API query from a natural language question,
@@ -245,7 +246,7 @@ def generateQuery(
 
     logger.debug("Prompt sent to LLM:\n%s", prompt)
 
-    LLMObj = CallLLMApi(LLMservice)
+    LLMObj = CallLLMApi(LLMservice, model=model)
     raw = LLMObj.CallService(prompt)
 
     logger.debug("Raw LLM response:\n%s", raw)
@@ -334,7 +335,7 @@ def _get_table_directory() -> str:
 _MAX_TOOL_CALLS = 5   # guard against infinite schema-fetching loops
 
 
-def gatherRequirements(messages: list, provider: str) -> dict:
+def gatherRequirements(messages: list, provider: str, model: str = None) -> dict:
     """
     Agentic requirement gathering loop.
 
@@ -393,7 +394,7 @@ def gatherRequirements(messages: list, provider: str) -> dict:
 
         logger.debug("Gathering agent prompt (attempt %d):\n%s", attempt + 1, prompt)
 
-        raw = CallLLMApi(provider).CallService(prompt)
+        raw = CallLLMApi(provider, model=model).CallService(prompt)
 
         logger.debug("Gathering agent response (attempt %d):\n%s", attempt + 1, raw)
 
@@ -410,7 +411,7 @@ def gatherRequirements(messages: list, provider: str) -> dict:
                 "Do NOT ask the user for schema or column information."
             )
             try:
-                raw = CallLLMApi(provider).CallService(correction_prompt)
+                raw = CallLLMApi(provider, model=model).CallService(correction_prompt)
                 cleaned = _strip_code_fence(raw)
                 json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
             except Exception:
@@ -468,6 +469,7 @@ def generate_pipeline_dict(
     source_schemas_str: str,
     column_mappings_str: str,
     LLMservice: str,
+    model: str = None,
 ) -> dict:
     """
     Use an LLM to generate a data dictionary for the OUTPUT table of a SQL pipeline.
@@ -495,7 +497,7 @@ def generate_pipeline_dict(
 
     logger.debug("Pipeline dict prompt:\n%s", prompt)
 
-    LLMObj = CallLLMApi(LLMservice)
+    LLMObj = CallLLMApi(LLMservice, model=model)
     raw = LLMObj.CallService(prompt)
 
     logger.debug("Pipeline dict raw response:\n%s", raw)

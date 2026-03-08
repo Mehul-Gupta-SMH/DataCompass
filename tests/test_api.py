@@ -78,7 +78,7 @@ class TestPostQuerySuccess:
             "/api/query",
             json={"query": "show me orders", "provider": "open_ai"},
         )
-        mock_generate.assert_called_once_with("show me orders", "open_ai", "sql")
+        mock_generate.assert_called_once_with("show me orders", "open_ai", "sql", model=None)
 
 
 # ---------------------------------------------------------------------------

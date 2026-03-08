@@ -42,14 +42,17 @@ class CallLLMApi:
         llmService (str): The LLM service to be used (e.g., "OpenAI", "Anthropic").
         api_temp_dict (dict): The API dictionary containing endpoint, headers, and payload.
     """
-    def __init__(self, llmService = "OpenAI"):
+    def __init__(self, llmService="OpenAI", model=None):
         """
         Initializes an instance of CallLLMApi class.
 
         Args:
             llmService (str, optional): The LLM service to be used. Defaults to "OpenAI".
+            model (str, optional): Model name override. When provided, overrides the
+                model_name from model_access_config.YAML for this call only.
         """
         self.llmService = llmService
+        self.model_override = model
         self.api_temp_dict = None
         self.__set_apidict__(llmService)
 
@@ -69,16 +72,19 @@ class CallLLMApi:
         with open(model_config_path, "r") as model_config_FObj:
             model_config = yaml.load(model_config_FObj, yaml.FullLoader)[str(llmService).upper()]
 
+        # Resolve effective model: explicit override wins, else YAML default
+        effective_model = self.model_override or model_config.get("model_name", "")
+
         # claude_code uses the local CLI — no HTTP template needed
         if llmService.lower() == "claude_code":
-            self.api_temp_dict = {"model": model_config.get("model_name", "claude-sonnet-4-5")}
+            self.api_temp_dict = {"model": effective_model or "claude-sonnet-4-5"}
             return
 
         # Load API calling template for HTTP-based providers
-        with open(model_config["api_template"],"r") as api_temp_fobj:
+        with open(model_config["api_template"], "r") as api_temp_fobj:
             api_temp_str = api_temp_fobj.read()
-            api_temp_str = api_temp_str.replace("<<api_key>>",model_config["api_key"])
-            api_temp_str = api_temp_str.replace("<<model>>",model_config["model_name"])
+            api_temp_str = api_temp_str.replace("<<api_key>>", model_config["api_key"])
+            api_temp_str = api_temp_str.replace("<<model>>", effective_model)
 
         # Convert API template string to dictionary
         self.api_temp_dict = json.loads(api_temp_str)
@@ -159,11 +165,8 @@ class CallLLMApi:
         # ------------------------------------------------------------------ #
         # HTTP-based providers                                                 #
         # ------------------------------------------------------------------ #
-        if self.llmService.lower() in ("open_ai", "groq", "codex"):
+        if self.llmService.lower() in ("open_ai", "groq", "codex", "anthropic"):
             self.api_temp_dict["payload"]["messages"][0]["content"] = prompt
-
-        if self.llmService.lower() == "anthropic":
-            self.api_temp_dict["payload"]["prompt"] = self.api_temp_dict["payload"]["prompt"].replace("<<input_text>>", prompt)
 
         if self.llmService.lower() == "google":
             self.api_temp_dict["payload"]["contents"][0]["parts"][0]["text"] = prompt
@@ -182,7 +185,7 @@ class CallLLMApi:
                 if self.llmService.lower() in ("open_ai", "groq", "codex"):
                     return data['choices'][0]['message']['content']
                 if self.llmService.lower() == "anthropic":
-                    return data['completion']
+                    return data['content'][0]['text']
                 if self.llmService.lower() == "google":
                     return data['candidates'][0]['content']['parts'][0]['text']
 
