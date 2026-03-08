@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { formatProviderLabel } from '../constants/providerLabels.js'
 
 const s = {
   card: {
@@ -157,10 +158,18 @@ GROUP BY c.customer_id, c.customer_name, DATE_TRUNC('month', o.order_date);
 export default function IngestTable({ providers }) {
   const [sql, setSql] = useState('')
   const [provider, setProvider] = useState(providers[0] ?? '')
+  const [balances, setBalances] = useState({})
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  useEffect(() => {
+    fetch('/api/providers/balance')
+      .then((r) => r.json())
+      .then((data) => setBalances(data.balances ?? {}))
+      .catch(() => {})
+  }, [])
 
   // Preview state
   const [tableName, setTableName] = useState('')
@@ -257,7 +266,16 @@ export default function IngestTable({ providers }) {
             onChange={(e) => setProvider(e.target.value)}
             disabled={loading}
           >
-            {providers.map((p) => <option key={p} value={p}>{p}</option>)}
+            {providers.map((p) => {
+              const bal = balances[p]
+              const unavailable = bal?.available === false
+              const label = formatProviderLabel(p, balances)
+              return (
+                <option key={p} value={p} disabled={unavailable}>
+                  {label}{unavailable ? ' (unavailable)' : ''}
+                </option>
+              )
+            })}
           </select>
           <button style={s.btn()} onClick={handleAnalyze} disabled={loading}>
             {loading ? 'Analyzing…' : 'Analyze Pipeline'}

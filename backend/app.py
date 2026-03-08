@@ -1,23 +1,34 @@
 import sys
 import os
-from typing import Literal, List
+from contextlib import asynccontextmanager
+from typing import Any, Literal, List
+import networkx as nx
 
 # Ensure project root is on the path so `main` can be imported directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from main import generateQuery, gatherRequirements, SQLValidationError, _VALID_PROVIDERS
+from backend.auth import get_current_user
 
-app = FastAPI(title="SQLCoder API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from backend.auth import init_db
+    init_db()
+    yield
+
+
+app = FastAPI(title="SQLCoder API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:4173"],
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "DELETE"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 
@@ -74,6 +85,81 @@ class IngestCommitRequest(BaseModel):
     relationships: List[RelationshipMeta] = []
 
 
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class SessionItem(BaseModel):
+    id: str
+    title: str
+    timestamp: int
+    messages: List[Any]
+    provider: str
+    queryType: str
+
+
+# ---------------------------------------------------------------------------
+# Auth endpoints  (public — no token required)
+# ---------------------------------------------------------------------------
+
+@app.post("/auth/register", status_code=201)
+def register(body: RegisterRequest):
+    from backend.auth import create_user
+    try:
+        user = create_user(body.username, body.password)
+        return {"username": user["username"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/auth/login")
+def login(body: LoginRequest):
+    from backend.auth import authenticate_user, create_token
+    user = authenticate_user(body.username, body.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return {
+        "access_token": create_token(user),
+        "token_type": "bearer",
+        "username": user["username"],
+    }
+
+
+@app.get("/auth/me")
+def me(user: dict = Depends(get_current_user)):
+    return {"username": user["sub"], "id": user["uid"]}
+
+
+# ---------------------------------------------------------------------------
+# Session endpoints  (protected — per-user chat history)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/sessions")
+def get_sessions(user: dict = Depends(get_current_user)):
+    from backend.auth import list_sessions
+    return {"sessions": list_sessions(user["uid"])}
+
+
+@app.post("/api/sessions")
+def post_session(body: SessionItem, user: dict = Depends(get_current_user)):
+    from backend.auth import upsert_session
+    upsert_session(user["uid"], body.model_dump())
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session_endpoint(session_id: str, user: dict = Depends(get_current_user)):
+    from backend.auth import delete_session
+    delete_session(user["uid"], session_id)
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Existing endpoints
 # ---------------------------------------------------------------------------
@@ -91,7 +177,7 @@ def get_providers_balance():
 
 
 @app.post("/api/chat")
-def post_chat(body: ChatRequest):
+def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
     """
     Two-phase chat endpoint.
 
@@ -136,7 +222,7 @@ def post_chat(body: ChatRequest):
 
 
 @app.post("/api/query")
-def post_query(body: QueryRequest):
+def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
     try:
         result = generateQuery(body.query, body.provider, body.query_type)
         # result = {"type": "sql"|"code"|"clarify", "content": str}
@@ -284,8 +370,8 @@ def post_ingest_commit(body: IngestCommitRequest):
 @app.get("/api/lineage/{table_name}")
 def get_lineage(table_name: str):
     """
-    Return the direct-neighbor lineage for a table from the NetworkX graph.
-    Edges are bidirectional in the graph, so all neighbors are returned as 'related'.
+    Return the lineage subgraph connected to *table_name* from the NetworkX graph.
+    The connected component is returned so the UI can render the actual lineage flow.
     """
     from MetadataManager.MetadataStore.relationdb import networkxDB
 
@@ -295,31 +381,25 @@ def get_lineage(table_name: str):
     if name not in graph.nodes():
         raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found in schema.")
 
-    # graph may be nx.Graph (undirected) or nx.DiGraph — neighbors() works on both.
-    # For DiGraph, edges are stored bidirectionally so neighbors() covers all connections.
-    get_neighbors = (
-        (lambda n: set(graph.successors(n)) | set(graph.predecessors(n)))
-        if graph.is_directed()
-        else (lambda n: set(graph.neighbors(n)))
-    )
-    neighbors = get_neighbors(name) - {name}
+    component = nx.node_connected_component(graph.to_undirected(), name)
 
     nodes = [{"id": name, "role": "center"}]
-    nodes.extend({"id": n, "role": "related"} for n in sorted(neighbors))
+    nodes.extend({"id": n, "role": "related"} for n in sorted(component - {name}))
 
     # Deduplicate edges (graph is bidirectional — each pair stored in both directions)
-    seen_edges = set()
+    seen_pairs = set()
     edges = []
     for src, tgt, data in graph.edges(data=True):
-        if name not in (src, tgt):
+        if src not in component or tgt not in component:
             continue
-        key = tuple(sorted([src, tgt]))
-        if key not in seen_edges:
-            seen_edges.add(key)
-            edges.append({
-                "source": src,
-                "target": tgt,
-                "joinKeys": data.get("JoinKeys", ""),
-            })
+        edge_key = frozenset({src, tgt})
+        if edge_key in seen_pairs:
+            continue
+        seen_pairs.add(edge_key)
+        edges.append({
+            "source": src,
+            "target": tgt,
+            "joinKeys": data.get("JoinKeys", ""),
+        })
 
     return {"center": name, "nodes": nodes, "edges": edges}

@@ -1,20 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import ChatMessage from './ChatMessage.jsx'
+import { PROVIDER_LABELS, formatProviderLabel } from '../constants/providerLabels.js'
 
 const QUERY_TYPE_LABELS = {
   sql: 'SQL',
   spark_sql: 'Spark SQL',
   dataframe_api: 'DataFrame API',
   pandas: 'Pandas',
-}
-
-const PROVIDER_LABELS = {
-  open_ai:     'OpenAI',
-  anthropic:   'Anthropic',
-  groq:        'GROQ',
-  google:      'Google Gemini',
-  codex:       'OpenAI Codex',
-  claude_code: 'Claude Code',
 }
 
 const STORAGE_KEY = 'data_compass_sessions'
@@ -330,8 +322,7 @@ export default function ChatInterface({ providers }) {
             {providers.map((p) => {
               const bal = balances[p]
               const unavailable = bal?.available === false
-              const displayName = PROVIDER_LABELS[p] ?? p
-              const label = bal ? `${displayName}  —  ${bal.label}` : displayName
+              const label = formatProviderLabel(p, balances)
               return (
                 <option key={p} value={p} disabled={unavailable}>
                   {label}{unavailable ? ' (unavailable)' : ''}
