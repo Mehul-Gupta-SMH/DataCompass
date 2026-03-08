@@ -18,7 +18,7 @@ class SQLValidationError(Exception):
 
 _CODE_FENCE_RE = re.compile(r'```(?:\w+)?\s*(.*?)\s*```', re.DOTALL | re.IGNORECASE)
 
-_VALID_PROVIDERS = {"open_ai", "anthropic", "google", "groq", "codex", "claude_code"}
+_VALID_PROVIDERS = {"open_ai", "anthropic", "google", "groq", "codex", "claude_code", "codex_cli"}
 _VALID_QUERY_TYPES = {"sql", "spark_sql", "dataframe_api", "pandas"}
 _CODE_FENCE_PYSPARK_RE = re.compile(r'```(?:python)?\s*(.*?)\s*```', re.DOTALL | re.IGNORECASE)
 _MAX_QUERY_LENGTH = 2000

@@ -70,14 +70,19 @@ class CallLLMApi:
         model_config_path = get_config_val("model_config", ["model_config","path"])
 
         with open(model_config_path, "r") as model_config_FObj:
-            model_config = yaml.load(model_config_FObj, yaml.FullLoader)[str(llmService).upper()]
+            full_config = yaml.load(model_config_FObj, yaml.FullLoader)
+            model_config = full_config.get(str(llmService).upper(), {})
 
         # Resolve effective model: explicit override wins, else YAML default
         effective_model = self.model_override or model_config.get("model_name", "")
 
-        # claude_code uses the local CLI — no HTTP template needed
+        # CLI-based providers — no HTTP template needed
         if llmService.lower() == "claude_code":
             self.api_temp_dict = {"model": effective_model or "claude-sonnet-4-5"}
+            return
+
+        if llmService.lower() == "codex_cli":
+            self.api_temp_dict = {"model": effective_model or "codex-mini-latest"}
             return
 
         # Load API calling template for HTTP-based providers
@@ -161,6 +166,34 @@ class CallLLMApi:
                 text_out = result.stdout.strip()
 
             return text_out
+
+        # ------------------------------------------------------------------ #
+        # codex_cli — delegate to the local OpenAI Codex CLI                  #
+        # ------------------------------------------------------------------ #
+        if self.llmService.lower() == "codex_cli":
+            model = self.api_temp_dict.get("model", "codex-mini-latest")
+            try:
+                result = subprocess.run(
+                    ["codex", "-q", "--model", model, prompt],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                )
+            except FileNotFoundError:
+                raise ValueError(
+                    "OpenAI Codex CLI not found. "
+                    "Install it with: npm install -g @openai/codex"
+                )
+            except subprocess.TimeoutExpired:
+                raise ValueError("OpenAI Codex CLI timed out after 120 seconds.")
+
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip()
+                raise ValueError(f"OpenAI Codex CLI exited with error: {err[:300]}")
+
+            return result.stdout.strip()
 
         # ------------------------------------------------------------------ #
         # HTTP-based providers                                                 #

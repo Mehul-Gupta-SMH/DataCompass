@@ -5,6 +5,7 @@ export const PROVIDER_LABELS = {
   google:      'Google Gemini',
   codex:       'OpenAI Codex',
   claude_code: 'Claude Code',
+  codex_cli:   'Codex CLI',
 }
 
 /** Models available per provider. First entry = default (matches YAML). */
@@ -46,6 +47,11 @@ export const PROVIDER_MODELS = {
     { value: 'claude-sonnet-4-6',          label: 'Claude Sonnet 4.6' },
     { value: 'claude-opus-4-6',            label: 'Claude Opus 4.6' },
     { value: 'claude-haiku-4-5-20251001',  label: 'Claude Haiku 4.5' },
+  ],
+  codex_cli: [
+    { value: 'codex-mini-latest', label: 'Codex Mini (latest)' },
+    { value: 'o4-mini',           label: 'o4-mini' },
+    { value: 'o3',                label: 'o3' },
   ],
 }
 
