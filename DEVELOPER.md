@@ -1,6 +1,6 @@
 # Developer Guide
 
-Concise reference for contributors and developers extending Data Compass.
+Concise reference for contributors and developers extending Poly-QL.
 
 ---
 

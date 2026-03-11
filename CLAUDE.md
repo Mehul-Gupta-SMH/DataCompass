@@ -1,4 +1,4 @@
-# CLAUDE.md — Data Compass
+# CLAUDE.md — Poly-QL
 
 Guidelines and context for AI-assisted development on this project.
 
@@ -14,7 +14,7 @@ Guidelines and context for AI-assisted development on this project.
 
 ## Project Identity
 
-- App name: **Data Compass** (header/branding)
+- App name: **Poly-QL** (header/branding)
 - Repo/package names still say `SQLCoder` — do not rename those
 
 ---
@@ -30,7 +30,7 @@ Guidelines and context for AI-assisted development on this project.
 
 - Vite + React (`frontend/`)
 - Run: `npm run dev` from `frontend/`
-- Sessions stored in `localStorage` under `data_compass_sessions` (max 30)
+- Sessions stored in `localStorage` under `poly_ql_sessions` (max 30)
 
 ---
 

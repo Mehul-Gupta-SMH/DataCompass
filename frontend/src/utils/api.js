@@ -4,12 +4,12 @@
  * so AuthContext can react and redirect to the login page.
  */
 export async function apiFetch(url, options = {}) {
-  const token = localStorage.getItem('data_compass_token') || ''
+  const token = localStorage.getItem('poly_ql_token') || ''
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   if (token) headers['Authorization'] = `Bearer ${token}`
   const res = await fetch(url, { ...options, headers })
   if (res.status === 401) {
-    localStorage.removeItem('data_compass_token')
+    localStorage.removeItem('poly_ql_token')
     window.dispatchEvent(new Event('auth:logout'))
   }
   return res

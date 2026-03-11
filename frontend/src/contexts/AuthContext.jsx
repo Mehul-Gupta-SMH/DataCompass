@@ -14,7 +14,7 @@ function decodeToken(token) {
 }
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('data_compass_token') || '')
+  const [token, setToken] = useState(() => localStorage.getItem('poly_ql_token') || '')
   const [ssoError, setSsoError] = useState('')
 
   const user = token ? decodeToken(token) : null
@@ -22,11 +22,11 @@ export function AuthProvider({ children }) {
   // Handle Google SSO redirect: backend appends #sso_token=... or #sso_error=... to the URL
   useEffect(() => {
     const hash = window.location.hash
-    if (hash.startsWith('#sso_token=')) {
-      const t = hash.slice('#sso_token='.length)
-      localStorage.setItem('data_compass_token', t)
-      setToken(t)
-      window.history.replaceState(null, '', window.location.pathname)
+      if (hash.startsWith('#sso_token=')) {
+        const t = hash.slice('#sso_token='.length)
+        localStorage.setItem('poly_ql_token', t)
+        setToken(t)
+        window.history.replaceState(null, '', window.location.pathname)
     } else if (hash.startsWith('#sso_error=')) {
       const msg = decodeURIComponent(hash.slice('#sso_error='.length))
       setSsoError(msg)
@@ -49,12 +49,12 @@ export function AuthProvider({ children }) {
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.detail ?? 'Login failed.')
-    localStorage.setItem('data_compass_token', data.access_token)
+    localStorage.setItem('poly_ql_token', data.access_token)
     setToken(data.access_token)
   }
 
   function logout() {
-    localStorage.removeItem('data_compass_token')
+    localStorage.removeItem('poly_ql_token')
     setToken('')
   }
 
