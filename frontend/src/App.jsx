@@ -71,7 +71,7 @@ function AppContent() {
           <button style={tabStyle(activeTab === 'query')}   onClick={() => setActiveTab('query')}>Query</button>
           <button style={tabStyle(activeTab === 'schema')}  onClick={() => setActiveTab('schema')}>Schema / ERD</button>
           <button style={tabStyle(activeTab === 'ingest')}  onClick={() => setActiveTab('ingest')}>Ingest Table</button>
-          <button style={tabStyle(activeTab === 'lineage')} onClick={() => setActiveTab('lineage')}>Data Lineage</button>
+          <button style={tabStyle(activeTab === 'lineage')} onClick={() => setActiveTab('lineage')}>Join Path</button>
         </nav>
 
         {/* User info + logout */}

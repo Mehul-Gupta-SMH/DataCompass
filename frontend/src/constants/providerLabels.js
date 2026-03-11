@@ -1,3 +1,13 @@
+export const DB_TYPES = [
+  { value: 'generic',    label: 'Generic SQL' },
+  { value: 'snowflake',  label: 'Snowflake' },
+  { value: 'databricks', label: 'Databricks' },
+  { value: 'mssql',      label: 'MS SQL Server' },
+  { value: 'postgres',   label: 'PostgreSQL' },
+  { value: 'mysql',      label: 'MySQL' },
+  { value: 'bigquery',   label: 'BigQuery' },
+]
+
 export const PROVIDER_LABELS = {
   open_ai:     'OpenAI',
   anthropic:   'Anthropic',

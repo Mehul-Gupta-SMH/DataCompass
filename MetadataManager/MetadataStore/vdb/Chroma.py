@@ -186,5 +186,5 @@ class ChromaVectorStore(BaseVectorStore):
     def add_data(self, data: list, metadata: dict) -> str:
         return addData(self.client, data, metadata)
 
-    def get_data(self, query_emb: list, metadata: dict) -> dict:
-        return getData(self.client, query_emb, metadata)
+    def get_data(self, query_emb: list, metadata: dict, **kwargs) -> dict:
+        return getData(self.client, query_emb, metadata, **kwargs)

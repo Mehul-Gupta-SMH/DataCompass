@@ -151,14 +151,15 @@ def validate_pyspark(llm_output: str) -> dict:
     return result
 
 
-def getRelevantContext(user_query: str) -> dict:
+def getRelevantContext(user_query: str, instance_name: str = "default") -> dict:
     """
     Retrieves the schema context needed to build a SQL query for the given question.
 
     :param user_query: Natural language question from the user.
+    :param instance_name: Named database instance to scope metadata lookups.
     :return: Dict containing user_query, table_list, and join_keys.
     """
-    queryContext = SQLBuilderSupport()
+    queryContext = SQLBuilderSupport(instance_name=instance_name)
     return queryContext.getBuildComponents(user_query)
 
 
@@ -187,6 +188,7 @@ def generateQuery(
     query_type: str = "sql",
     conversation: list = None,
     model: str = None,
+    instance_name: str = "default",
 ) -> dict:
     """
     Generates a SQL, Spark SQL, or PySpark DataFrame API query from a natural language question,
@@ -196,6 +198,7 @@ def generateQuery(
     :param LLMservice: LLM provider to use.
     :param query_type: Output type — 'sql', 'spark_sql', or 'dataframe_api'.
     :param conversation: Full session conversation history [{role, content}, ...] for context.
+    :param instance_name: Named database instance to scope metadata lookups.
     :return: Dict with keys 'type' ('sql'|'code'|'clarify') and 'content' (str).
     """
     if not isinstance(userQuery, str) or not userQuery.strip():
@@ -223,14 +226,14 @@ def generateQuery(
         if user_texts:
             rag_query = " ".join(user_texts[-3:])
 
-    context = getRelevantContext(rag_query)
+    context = getRelevantContext(rag_query, instance_name=instance_name)
 
     # Guard: if RAG returned no tables the prompt schema section will be blank,
     # which confuses the LLM. Fall back to the requirements summary as the query.
     no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
     if no_tables and rag_query != userQuery:
         logger.warning("RAG returned no tables using conversation query; retrying with requirements summary")
-        context = getRelevantContext(userQuery)
+        context = getRelevantContext(userQuery, instance_name=instance_name)
         no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
 
     if no_tables:
@@ -258,7 +261,7 @@ def generateQuery(
     return validate_sql(raw)
 
 
-def _get_full_table_schema(table_name: str) -> str:
+def _get_full_table_schema(table_name: str, instance_name: str = "default") -> str:
     """
     Fetch full column metadata for a single table from SQLite.
 
@@ -272,9 +275,15 @@ def _get_full_table_schema(table_name: str) -> str:
         tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
         db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
-        desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table_name}, ["Desc"])
+        desc_lookup = {"tableName": table_name}
+        col_lookup = {"TableName": table_name}
+        if instance_name != "default":
+            desc_lookup["instance_name"] = instance_name
+            col_lookup["instance_name"] = instance_name
+
+        desc_row = db.get_data(tmddb["tableDescName"], desc_lookup, ["Desc"])
         cols = db.get_data(
-            tmddb["tableColName"], {"TableName": table_name},
+            tmddb["tableColName"], col_lookup,
             ["ColumnName", "DataType", "Constraints", "Desc", "logic", "type_of_logic", "base_table"],
             fetchtype="All",
         ) or []
@@ -310,19 +319,22 @@ def _get_full_table_schema(table_name: str) -> str:
         return f"### {table_name}\n_(schema unavailable: {exc})_"
 
 
-def _get_table_directory() -> str:
+def _get_table_directory(instance_name: str = "default") -> str:
     """Return a compact list of all tables + descriptions for the requirement gathering prompt."""
     try:
         from MetadataManager.MetadataStore.relationdb import networkxDB
         from Utilities.base_utils import accessDB, get_config_val
 
-        graph = networkxDB.getObj()
+        graph = networkxDB.getObj(instance_name)
         tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
         db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
         lines = []
         for table in sorted(graph.nodes()):
-            desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table}, ["Desc"])
+            desc_lookup = {"tableName": table}
+            if instance_name != "default":
+                desc_lookup["instance_name"] = instance_name
+            desc_row = db.get_data(tmddb["tableDescName"], desc_lookup, ["Desc"])
             desc = (desc_row[0] if desc_row else "") or ""
             lines.append(f"- **{table}**: {desc}")
 
@@ -335,7 +347,7 @@ def _get_table_directory() -> str:
 _MAX_TOOL_CALLS = 5   # guard against infinite schema-fetching loops
 
 
-def gatherRequirements(messages: list, provider: str, model: str = None) -> dict:
+def gatherRequirements(messages: list, provider: str, model: str = None, instance_name: str = "default") -> dict:
     """
     Agentic requirement gathering loop.
 
@@ -344,6 +356,8 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
 
     Each iteration re-builds the full prompt with all previously fetched schemas
     appended, so the LLM always sees the complete accumulated context.
+
+    :param instance_name: Named database instance to scope all metadata lookups.
 
     Returns:
       {"ready": False, "question": str}  — needs more info from the user
@@ -356,13 +370,13 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
             f"LLMservice must be one of {sorted(_VALID_PROVIDERS)}, got {provider!r}."
         )
 
-    table_dir = _get_table_directory()
+    table_dir = _get_table_directory(instance_name=instance_name)
 
     # Best-effort RAG schema retrieval from the recent conversation
     user_texts = [m["content"] for m in messages if m.get("role") == "user"]
     search_query = " ".join(user_texts[-3:]) if user_texts else ""
     try:
-        context = getRelevantContext(search_query)
+        context = getRelevantContext(search_query, instance_name=instance_name)
         rag_schema_str = PromptBuilder.format_schema(context)
     except Exception as exc:
         logger.warning("RAG schema retrieval failed: %s", exc)
@@ -434,7 +448,7 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
                 logger.debug("Schema for '%s' already fetched; skipping duplicate", table_name)
                 continue
             logger.info("Gathering agent fetching schema for table: %s", table_name)
-            fetched_schemas[table_name] = _get_full_table_schema(table_name)
+            fetched_schemas[table_name] = _get_full_table_schema(table_name, instance_name=instance_name)
             continue   # re-prompt with the new schema appended
 
         # --- Final answer: question or ready ---

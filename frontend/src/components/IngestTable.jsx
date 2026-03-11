@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { formatProviderLabel, PROVIDER_MODELS, defaultModel } from '../constants/providerLabels.js'
+import { formatProviderLabel, PROVIDER_MODELS, defaultModel, DB_TYPES } from '../constants/providerLabels.js'
 import { apiFetch } from '../utils/api.js'
 
 const s = {
@@ -165,6 +165,8 @@ export default function IngestTable({ providers }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [dbType, setDbType] = useState('generic')
+  const [instanceName, setInstanceName] = useState('default')
 
   useEffect(() => {
     fetch('/api/providers/balance')
@@ -187,7 +189,7 @@ export default function IngestTable({ providers }) {
     try {
       const res = await apiFetch('/api/ingest/preview', {
         method: 'POST',
-        body: JSON.stringify({ sql, provider, model }),
+        body: JSON.stringify({ sql, provider, model, instance_name: instanceName }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.detail ?? 'Analysis failed.'); return }
@@ -211,7 +213,7 @@ export default function IngestTable({ providers }) {
     try {
       const res = await apiFetch('/api/ingest/commit', {
         method: 'POST',
-        body: JSON.stringify({ table_name: tableName, table_desc: tableDesc, columns, relationships }),
+        body: JSON.stringify({ table_name: tableName, table_desc: tableDesc, columns, relationships, instance_name: instanceName, db_type: dbType }),
       })
       const data = await res.json()
       if (!res.ok) { setError(data.detail ?? 'Commit failed.'); return }
@@ -292,6 +294,25 @@ export default function IngestTable({ providers }) {
               ))}
             </select>
           )}
+          <select
+            style={s.select}
+            value={dbType}
+            onChange={(e) => setDbType(e.target.value)}
+            disabled={loading}
+            title="Database type"
+          >
+            {DB_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
+          </select>
+          <input
+            style={{ ...s.input, width: 160 }}
+            value={instanceName}
+            onChange={(e) => setInstanceName(e.target.value)}
+            placeholder="Instance name (e.g. default)"
+            disabled={loading}
+            title="Instance name"
+          />
           <button style={s.btn()} onClick={handleAnalyze} disabled={loading}>
             {loading ? 'Analyzing…' : 'Analyze Pipeline'}
           </button>

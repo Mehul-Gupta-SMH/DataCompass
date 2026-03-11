@@ -153,19 +153,30 @@ class ManageInformation:
 
         return "Success"
 
-    def get_data(self, query, vdb_metadata):
+    def get_data(self, query, vdb_metadata, instance_name: str = None):
         """
         Retrieve data from the vector store and score each result.
 
         Args:
             query: Query to retrieve data.
             vdb_metadata: Metadata specific to the virtual database.
+            instance_name (str): Optional instance filter. When provided and not "default",
+                passes DB=instance_name as a ChromaDB where-filter so only documents
+                belonging to that instance are returned.
 
         Returns:
             dict: Scored results containing retrieved data, distance, and scores.
         """
         query_embed = self.embedding_model.encode(query).tolist()
-        retrieved_info = self.vdb.get_data(query_embed, vdb_metadata)
+
+        # Apply instance filter only when a non-default instance is requested.
+        # Existing documents may not have DB="default" set, so we avoid filtering
+        # the default instance to maintain backward compatibility.
+        extra_filters = {}
+        if instance_name and instance_name != "default":
+            extra_filters["DB"] = instance_name
+
+        retrieved_info = self.vdb.get_data(query_embed, vdb_metadata, **extra_filters)
 
         results_scored = {}
         for ind in range(len(retrieved_info['ids'][0])):

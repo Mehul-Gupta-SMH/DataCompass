@@ -15,43 +15,46 @@ from Utilities.base_utils import get_config_val
 
 # --------------------------------------------------------------------------------------------
 
-def getObj():
+def getObj(instance_name: str = "default"):
     """
-    Load a NetworkX graph object from a pickle file if it exists, otherwise return an empty graph.
+    Load a NetworkX graph object for the specified instance from a pickle file.
+
+    The pickle file may contain either:
+      - A plain nx.DiGraph (old format, pre-multi-instance) — treated as "default"
+      - A dict mapping instance_name -> nx.DiGraph (new multi-instance format)
 
     Returns:
-        nx.DiGraph: Loaded graph object if the file exists, otherwise an empty graph.
-
-    Notes:
-        - If the specified file exists, it is assumed to contain a NetworkX graph serialized using pickle.
-        - The function returns the loaded graph object if the file exists.
-        - If the file doesn't exist, an empty graph is returned.
+        nx.DiGraph: Graph for the requested instance. Empty DiGraph if not found.
     """
 
     Graphfilename = get_config_val("retrieval_config", ["relationdb","path"])
 
     if os.path.exists(Graphfilename):
-        # If the file exists, load the graph from the pickle file
         with open(Graphfilename, "rb") as GObj:
-            return pickle.load(GObj)
+            data = pickle.load(GObj)
+        # Migrate old plain-graph format to dict format
+        if isinstance(data, nx.Graph):
+            graph_dict = {"default": data}
+        else:
+            graph_dict = data
     else:
-        # If the file doesn't exist, return an empty directed graph
-        return nx.DiGraph()
+        graph_dict = {}
+
+    return graph_dict.get(instance_name, nx.DiGraph())
 
 # --------------------------------------------------------------------------------------------
 
-def addRelations(GObj: nx.DiGraph, edges: dict):
+def addRelations(GObj: nx.DiGraph, edges: dict, instance_name: str = "default"):
     """
-    Add nodes and edges with attributes to a NetworkX graph and save it to a pickle file.
+    Add nodes and edges with attributes to the per-instance NetworkX graph and save it.
+
+    Loads the full graph dict, updates the sub-graph for *instance_name*, then
+    persists the entire dict back to the pickle file.
 
     Args:
         GObj (nx.DiGraph): NetworkX graph object to which nodes and edges will be added.
         edges (dict): Dictionary containing edge tuples as keys (source, target) and edge attributes as values.
-
-    Notes:
-        - The function modifies the graph object GObj in place by adding edges with attributes.
-        - Edges are added with the specified attributes.
-        - The graph is then saved to a pickle file with the specified filename.
+        instance_name (str): Instance to update. Defaults to "default".
     """
 
     # Add edges in both directions — JOINs are semantically bidirectional,
@@ -62,9 +65,21 @@ def addRelations(GObj: nx.DiGraph, edges: dict):
 
     Graphfilename = get_config_val("retrieval_config", ["relationdb", "path"])
 
-    # Save the graph to a pickle file
+    # Load full dict (or migrate old format), update instance, save back
+    if os.path.exists(Graphfilename):
+        with open(Graphfilename, "rb") as f:
+            existing = pickle.load(f)
+        if isinstance(existing, nx.Graph):
+            graph_dict = {"default": existing}
+        else:
+            graph_dict = existing
+    else:
+        graph_dict = {}
+
+    graph_dict[instance_name] = GObj
+
     with open(Graphfilename, 'wb') as f:
-        pickle.dump(GObj, f)
+        pickle.dump(graph_dict, f)
 
 # --------------------------------------------------------------------------------------------
 

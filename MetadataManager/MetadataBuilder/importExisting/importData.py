@@ -74,14 +74,17 @@ class importDD:
 
     def createTable(self):
         """
-        Create database tables if they don't exist.
+        Create database tables if they don't exist, then migrate existing tables
+        to add instance_name and db_type columns (backward-compatible migration).
         """
         # Create Table Desc Table
         tableDescSchema = {
             'tableName': self.tableDescName,
             'columns': {
                 'tableName': ['TEXT', 'PRIMARY KEY'],
-                'Desc': ['TEXT', '']
+                'Desc': ['TEXT', ''],
+                'instance_name': ['TEXT', "DEFAULT 'default'"],
+                'db_type': ['TEXT', "DEFAULT 'generic'"],
             }
         }
         self.DBObj.create_table(tableDescSchema)
@@ -97,10 +100,46 @@ class importDD:
                 'logic': ['TEXT', ''],
                 'type_of_logic': ['TEXT', ''],
                 'base_table': ['TEXT', ''],
-                'Desc': ['TEXT', '']
+                'Desc': ['TEXT', ''],
+                'instance_name': ['TEXT', "DEFAULT 'default'"],
+                'db_type': ['TEXT', "DEFAULT 'generic'"],
             }
         }
         self.DBObj.create_table(tableColSchema)
+
+        # Migrate existing tables: add new columns if they don't already exist.
+        # SQLite does not support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
+        # so we use try/except for each migration statement.
+        conn = self.DBObj.get_connection() if hasattr(self.DBObj, 'get_connection') else None
+        if conn is None:
+            # Fall back to direct sqlite3 connection via the DB path
+            try:
+                import sqlite3
+                from Utilities.base_utils import get_config_val
+                db_path = get_config_val("retrieval_config", ["tableMDdb", "dbName"], True)
+                if not db_path.endswith('.db'):
+                    db_path = db_path + '.db'
+                conn = sqlite3.connect(db_path)
+                _close_conn = True
+            except Exception:
+                conn = None
+                _close_conn = False
+        else:
+            _close_conn = False
+
+        if conn is not None:
+            for tbl in [self.tableDescName, self.tableColName]:
+                for col, default in [("instance_name", "'default'"), ("db_type", "'generic'")]:
+                    try:
+                        conn.execute(
+                            f"ALTER TABLE {tbl} ADD COLUMN {col} TEXT DEFAULT {default}"
+                        )
+                        conn.commit()
+                        logger.info("Migrated column %s.%s", tbl, col)
+                    except Exception:
+                        pass  # column already exists
+            if _close_conn:
+                conn.close()
 
 
 
