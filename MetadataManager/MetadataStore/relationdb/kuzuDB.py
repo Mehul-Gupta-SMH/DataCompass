@@ -58,6 +58,7 @@ def _get_conn(instance_name: str) -> kuzu.Connection:
     """Return a connection for *instance_name*, reusing a pooled kuzu.Database."""
     if instance_name not in _DB_POOL:
         db_path = _instance_db_path(instance_name)
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         _DB_POOL[instance_name] = kuzu.Database(db_path)
     return kuzu.Connection(_DB_POOL[instance_name])
 

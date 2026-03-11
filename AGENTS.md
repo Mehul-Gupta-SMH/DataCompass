@@ -14,15 +14,31 @@ Instructions for AI agents working on this project.
 
 ---
 
+## Active Agents (as of 2026-03-11)
+
+| Agent | Status | Handles |
+|-------|--------|---------|
+| Claude Sonnet 4.6 | ✅ Available | Implementation, prompt engineering, architecture |
+| OpenAI Codex (o4-mini) | ✅ Available | Planning, testing, git commits, task logging |
+
+> When starting any task, check this table. If an agent is available, assign work to them explicitly — do not silently do their job. If unsure of availability, note the uncertainty in TASK.md.
+
+---
+
 ## Workflow
 
 ```
 1. Plan      → Both agents review TASK.md backlog and agree on scope + approach
-2. Implement → Claude writes the code
-3. Test      → Codex runs the test suite, adds missing tests if needed
+2. Implement → Claude writes the code; marks task [~] with "Ready for Codex" note
+3. Test      → Codex runs the full test suite; adds missing tests if needed
 4. Commit    → Codex makes the git commit (see commit rules below)
-5. Log       → Both update TASK.md with final status and notes
+5. Log       → Both update TASK.md with final [x] status and Change Log entry
 ```
+
+### Collaboration Rules
+- **Claude must tag tasks for Codex**: when implementation is done, add a `→ Codex: <what to do>` note in TASK.md under the task row before moving on.
+- **Codex must confirm handoff receipt**: when picking up a "Ready for Codex" task, change the note to `→ Codex: in progress` then `→ Codex: done` on completion.
+- **Neither agent should silently complete the other's designated steps** without logging that they did so and why (e.g. "Codex unavailable — Claude ran tests instead").
 
 ---
 

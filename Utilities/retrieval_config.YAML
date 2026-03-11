@@ -48,3 +48,9 @@ tableMDdb:
   dbName : "tableMetadata"
   tableDescName : "tableDesc"
   tableColName : "tableColMetadata"
+
+
+# ---------------------------------------------------------
+
+gather_requirements:
+  max_tool_calls: 5   # max schema-fetch tool calls before fallback question

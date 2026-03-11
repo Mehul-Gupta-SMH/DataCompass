@@ -419,15 +419,13 @@ def _get_table_directory(instance_name: str = "default") -> str:
         return "(table directory unavailable)"
 
 
-_MAX_TOOL_CALLS = 5   # guard against infinite schema-fetching loops
-
-
 def gatherRequirements(messages: list, provider: str, model: str = None, instance_name: str = "default") -> dict:
     """
     Agentic requirement gathering loop.
 
-    The LLM can call a get_schema tool (up to _MAX_TOOL_CALLS times) to inspect
-    individual table schemas before deciding to ask a question or declare ready.
+    The LLM can call a get_schema tool (up to gather_requirements.max_tool_calls
+    times, configurable in retrieval_config.YAML) to inspect individual table
+    schemas before deciding to ask a question or declare ready.
 
     Each iteration re-builds the full prompt with all previously fetched schemas
     appended, so the LLM always sees the complete accumulated context.
@@ -439,11 +437,17 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
       {"ready": True,  "summary": str}   — enough info; passed to generateQuery
     """
     import json as _json
+    from Utilities.base_utils import get_config_val
 
     if not isinstance(provider, str) or provider.lower() not in _VALID_PROVIDERS:
         raise ValueError(
             f"LLMservice must be one of {sorted(_VALID_PROVIDERS)}, got {provider!r}."
         )
+
+    try:
+        _max_tool_calls = int(get_config_val("retrieval_config", ["gather_requirements", "max_tool_calls"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _max_tool_calls = 5
 
     table_dir = _get_table_directory(instance_name=instance_name)
 
@@ -468,7 +472,7 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
 
     fetched_schemas: dict[str, str] = {}   # table_name -> markdown schema string
 
-    for attempt in range(_MAX_TOOL_CALLS + 1):
+    for attempt in range(_max_tool_calls + 1):
         # Build the FETCHED_SCHEMAS section from any tool results so far
         if fetched_schemas:
             fetched_section = (
@@ -550,7 +554,7 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
         return {"ready": False, "question": raw.strip()}
 
     # Exhausted tool-call budget — ask a generic fallback question
-    logger.warning("Gathering agent exhausted %d tool calls without a final answer", _MAX_TOOL_CALLS)
+    logger.warning("Gathering agent exhausted %d tool calls without a final answer", _max_tool_calls)
     return {
         "ready": False,
         "question": (

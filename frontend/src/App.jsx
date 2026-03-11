@@ -34,24 +34,26 @@ function AppContent() {
   const [providers, setProviders]     = useState([])
   const [schemaTables, setSchemaTables] = useState([])
 
-  // Redirect to login if not authenticated
-  if (!user) return <LoginPage />
-
   useEffect(() => {
+    if (!user) return
     fetch('/api/providers')
       .then((r) => r.json())
       .then((data) => setProviders(data.providers ?? []))
       .catch(() => {})
-  }, [])
+  }, [user])
 
   useEffect(() => {
+    if (!user) return
     if (activeTab === 'lineage') {
       fetch('/api/schema')
         .then((r) => r.json())
         .then((data) => setSchemaTables((data.tables ?? []).map((t) => t.name)))
         .catch(() => {})
     }
-  }, [activeTab])
+  }, [activeTab, user])
+
+  // Redirect to login if not authenticated
+  if (!user) return <LoginPage />
 
   return (
     <div style={{ maxWidth: '98vw', margin: '0 auto', padding: '0 24px' }}>
