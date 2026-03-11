@@ -1,4 +1,4 @@
-# AGENTS.md — Data Compass
+# AGENTS.md — Poly-QL
 
 Instructions for AI agents working on this project.
 

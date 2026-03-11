@@ -1,6 +1,6 @@
-# Data Compass
+# Poly-QL
 
-**Data Compass** is an AI-powered data assistant that turns plain-English questions into SQL, Spark SQL, or PySpark code — and keeps track of your database schema so you don't have to paste it every time.
+**Poly-QL** is an AI-powered data assistant that turns plain-English questions into SQL, Spark SQL, or PySpark code — and keeps track of your database schema so you don't have to paste it every time.
 
 Ask *"Which customers placed the most orders last quarter?"* and get a ready-to-run query in seconds.
 

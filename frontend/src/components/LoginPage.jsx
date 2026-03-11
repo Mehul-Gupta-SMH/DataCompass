@@ -77,7 +77,7 @@ export default function LoginPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 28 }}>
           <CompassIcon />
           <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px' }}>
-            Data Compass
+            Poly-QL
           </span>
         </div>
 

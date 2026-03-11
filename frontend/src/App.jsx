@@ -65,7 +65,7 @@ function AppContent() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 10 }}>
           <CompassIcon />
           <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px' }}>
-            Data Compass
+            Poly-QL
           </span>
         </div>
 
