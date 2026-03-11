@@ -17,7 +17,9 @@ Ask *"Which customers placed the most orders last quarter?"* and get a ready-to-
 | **Multiple output modes** | SQL · Spark SQL · PySpark DataFrame API · Pandas |
 | **Schema / ERD viewer** | Interactive entity-relationship diagram of your entire schema |
 | **Ingest Table** | Paste a pipeline SQL (`INSERT INTO … SELECT` or CTAS) and let the LLM auto-document the output table |
-| **Data Lineage** | Visual lineage graph showing which tables feed which |
+| **Multi-database instances** | Tag tables with a database type (Snowflake, Databricks, MS SQL, etc.) and a named instance — query each instance independently |
+| **Join Path explorer** | Select any two tables and instantly see the shortest JOIN route, with join keys and cardinality annotations |
+| **Derivative Tables** | See which tables were built from a source table via pipeline SQL, and which tables a derived table originates from |
 | **User accounts** | Login / register with username + password, or **Sign in with Google** |
 | **Session history** | Conversations are saved per user and accessible across sessions |
 
