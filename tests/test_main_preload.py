@@ -56,8 +56,10 @@ def test_preload_schemas_returns_table_markdown(access_mock, _):
     assert "| Column | Type | Constraints | Description |" in orders
     customers = cache["customers"]
     assert "### customers" in customers
-    # The helper currently repeats the description in the source-expression column.
-    assert "| Customer key | Customer key | customers.source | logic_type |" in customers
+    # Lineage columns should render correctly: Description, Source Expression, Logic Type, Base Table
+    print("customers repr:", repr(customers))
+    assert "| Source Expression |" in customers
+    assert "| customer_id | INT | PRIMARY KEY | Customer key | customers.source | logic_type | orders |" in customers
 
 
 @patch("Utilities.base_utils.get_config_val", return_value=_TMDB_CONFIG)

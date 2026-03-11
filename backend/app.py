@@ -316,10 +316,10 @@ def post_execute(body: ExecuteRequest, user: dict = Depends(get_current_user)):
 
 @app.get("/api/schema")
 def get_schema(instance_name: str = "default"):
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
     from Utilities.base_utils import accessDB, get_config_val
 
-    graph = networkxDB.getObj(instance_name)
+    graph = kuzuDB.getObj(instance_name)
 
     tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
     db = accessDB(tmddb["info_type"], tmddb["dbName"])
@@ -445,9 +445,9 @@ def get_lineage(table_name: str, instance_name: str = "default"):
     Return the lineage subgraph connected to *table_name* from the NetworkX graph.
     The connected component is returned so the UI can render the actual lineage flow.
     """
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
 
-    graph = networkxDB.getObj(instance_name)
+    graph = kuzuDB.getObj(instance_name)
     name = table_name.lower()
 
     if name not in graph.nodes():
@@ -485,9 +485,9 @@ def get_join_path(from_table: str, to_table: str, instance_name: str = "default"
     """
     Return the shortest JOIN path between two tables in the schema graph.
     """
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
 
-    graph = networkxDB.getObj(instance_name)
+    graph = kuzuDB.getObj(instance_name)
     src = from_table.lower()
     tgt = to_table.lower()
 
@@ -529,10 +529,10 @@ def get_derivatives(table_name: str, instance_name: str = "default"):
     Return tables that are pipeline-derived FROM the given table,
     and whether the given table itself is a derivative.
     """
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
     from Utilities.base_utils import accessDB, get_config_val
 
-    graph = networkxDB.getObj(instance_name)
+    graph = kuzuDB.getObj(instance_name)
     tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
     db = accessDB(tmddb["info_type"], tmddb["dbName"])
 

@@ -26,6 +26,7 @@ dependencies = [
 
     # Schema retrieval & graph
     "networkx>=3.2",
+    "kuzu>=0.3",
     "rank-bm25>=0.2",
 
     # Vector store
@@ -48,7 +49,7 @@ dev = [
 ]
 
 graph-db = [
-    # Kuzu: embedded graph DB, drop-in NetworkX pickle replacement (zero server setup)
+    # Already in core deps — kept as a named extra for pip install .[graph-db] convenience
     "kuzu>=0.3",
 ]
 

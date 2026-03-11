@@ -22,7 +22,7 @@ def test_lineage_returns_connected_component():
     client = TestClient(app)
     graph = _build_graph()
 
-    with patch('MetadataManager.MetadataStore.relationdb.networkxDB.getObj', return_value=graph):
+    with patch('MetadataManager.MetadataStore.relationdb.kuzuDB.getObj', return_value=graph):
         response = client.get('/api/lineage/orders')
 
     assert response.status_code == 200
@@ -42,7 +42,7 @@ def test_lineage_missing_table_returns_404():
     client = TestClient(app)
     graph = _build_graph()
 
-    with patch('MetadataManager.MetadataStore.relationdb.networkxDB.getObj', return_value=graph):
+    with patch('MetadataManager.MetadataStore.relationdb.kuzuDB.getObj', return_value=graph):
         response = client.get('/api/lineage/nonexistent')
 
     assert response.status_code == 404

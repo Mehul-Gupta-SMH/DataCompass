@@ -316,7 +316,7 @@ def _preload_schemas_bulk(instance_name: str = "default") -> dict:
                     for col in cols:
                         lines.append(
                             f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''}"
-                            f" | {col[3] or ''} | {col[4] or ''} | {col[5] or ''} |"
+                            f" | {col[4] or ''} | {col[5] or ''} | {col[6] or ''} |"
                         )
                 else:
                     lines.append("| Column | Type | Constraints | Description |")
@@ -397,10 +397,10 @@ def _get_full_table_schema(table_name: str, instance_name: str = "default") -> s
 def _get_table_directory(instance_name: str = "default") -> str:
     """Return a compact list of all tables + descriptions for the requirement gathering prompt."""
     try:
-        from MetadataManager.MetadataStore.relationdb import networkxDB
+        from MetadataManager.MetadataStore.relationdb import kuzuDB
         from Utilities.base_utils import accessDB, get_config_val
 
-        graph = networkxDB.getObj(instance_name)
+        graph = kuzuDB.getObj(instance_name)
         tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
         db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
