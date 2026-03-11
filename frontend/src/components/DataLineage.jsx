@@ -45,8 +45,9 @@ function PathNode({ data }) {
 const nodeTypes = { pathNode: PathNode }
 const NODE_W = 160
 const NODE_H = 44
+const joinTypeColors = { '1:1': '#10b981', '1:n': '#2563eb', 'n:1': '#f59e0b', 'n:m': '#94a3b8' }
 
-function buildFlow(pathData, fromTable, toTable) {
+function buildFlow(pathData, fromTable, toTable, joinTypeFilter = 'all') {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
   g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 200 })
@@ -64,7 +65,14 @@ function buildFlow(pathData, fromTable, toTable) {
   rfNodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }))
 
   const joinTypeColors = { '1:1': '#10b981', '1:n': '#2563eb', 'n:1': '#f59e0b', 'n:m': '#94a3b8' }
-  const rfEdges = pathData.edges.map((e, i) => {
+  const normalizedFilter = (joinTypeFilter || 'all').toLowerCase()
+  const rfEdges = pathData.edges
+    .filter((edge) => {
+      if (normalizedFilter === 'all') return true
+      const edgeType = (edge.joinType || 'n:m').toLowerCase()
+      return edgeType === normalizedFilter
+    })
+    .map((e, i) => {
     const jt = (e.joinType || 'n:m').toLowerCase()
     const color = joinTypeColors[jt] ?? '#94a3b8'
     const label = e.joinKeys

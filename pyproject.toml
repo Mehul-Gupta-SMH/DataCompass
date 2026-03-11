@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "data-compass"
+version = "0.1.0"
+description = "AI-powered natural language to SQL/Spark/Pandas query engine with schema management"
+requires-python = ">=3.10"
+
+dependencies = [
+    # API layer
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "starlette>=0.37",
+
+    # LLM providers
+    "openai>=1.12",
+    "anthropic>=0.21",
+    "requests>=2.31",
+    "tenacity>=8.2",
+
+    # Query validation
+    "sqlparse>=0.4",
+
+    # Schema retrieval & graph
+    "networkx>=3.2",
+    "rank-bm25>=0.2",
+
+    # Vector store
+    "chromadb>=0.4",
+
+    # Embeddings / reranking (heavy — can be mocked in CI)
+    "sentence-transformers>=2.5",
+    "FlagEmbedding>=1.2",
+
+    # Config & utilities
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "httpx>=0.26",          # FastAPI test client
+]
+
+graph-db = [
+    # Kuzu: embedded graph DB, drop-in NetworkX pickle replacement (zero server setup)
+    "kuzu>=0.3",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+exclude = ["tests*", "frontend*", ".claude*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

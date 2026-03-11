@@ -261,6 +261,81 @@ def generateQuery(
     return validate_sql(raw)
 
 
+def _preload_schemas_bulk(instance_name: str = "default") -> dict:
+    """
+    Preload all table schemas from SQLite in two queries (one for descriptions,
+    one for all column metadata), returning a dict of table_name -> markdown string.
+
+    This is the P4 optimisation: instead of N×2 SQLite round-trips during the
+    gather loop, we pay 2 queries upfront and serve every get_schema call from
+    an in-memory dict.  Falls back to an empty dict on any error so the loop
+    can still call _get_full_table_schema() per-table as before.
+    """
+    from collections import defaultdict
+    try:
+        from Utilities.base_utils import accessDB, get_config_val
+
+        tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
+        db = accessDB(tmddb["info_type"], tmddb["dbName"])
+
+        inst_filter = {} if instance_name == "default" else {"instance_name": instance_name}
+
+        # Query 1 — all table descriptions
+        desc_rows = db.get_data(
+            tmddb["tableDescName"], inst_filter, ["tableName", "Desc"], fetchtype="All"
+        ) or []
+        desc_map = {row[0]: row[1] for row in desc_rows if row[0]}
+
+        # Query 2 — all column metadata
+        col_rows = db.get_data(
+            tmddb["tableColName"], inst_filter,
+            ["TableName", "ColumnName", "DataType", "Constraints", "Desc",
+             "logic", "type_of_logic", "base_table"],
+            fetchtype="All",
+        ) or []
+
+        cols_map: dict = defaultdict(list)
+        for row in col_rows:
+            if row[0]:
+                cols_map[row[0]].append(row[1:])  # drop TableName prefix
+
+        # Build formatted markdown per table
+        schema_cache: dict = {}
+        for table_name in set(desc_map) | set(cols_map):
+            lines = [f"### {table_name}"]
+            if table_name in desc_map:
+                lines.append(f"> {desc_map[table_name]}")
+            lines.append("")
+
+            cols = cols_map.get(table_name, [])
+            if cols:
+                has_lineage = any(col[3] or col[4] or col[5] for col in cols)
+                if has_lineage:
+                    lines.append("| Column | Type | Constraints | Description | Source Expression | Logic Type | Base Table |")
+                    lines.append("|--------|------|-------------|-------------|-------------------|------------|------------|")
+                    for col in cols:
+                        lines.append(
+                            f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''}"
+                            f" | {col[3] or ''} | {col[4] or ''} | {col[5] or ''} |"
+                        )
+                else:
+                    lines.append("| Column | Type | Constraints | Description |")
+                    lines.append("|--------|------|-------------|-------------|")
+                    for col in cols:
+                        lines.append(f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''} |")
+            else:
+                lines.append("_(no columns found for this table)_")
+
+            schema_cache[table_name] = "\n".join(lines)
+
+        logger.debug("Bulk schema preload: %d tables loaded in 2 queries", len(schema_cache))
+        return schema_cache
+
+    except Exception as exc:
+        logger.warning("Bulk schema preload failed, will fall back to per-table fetches: %s", exc)
+        return {}
+
+
 def _get_full_table_schema(table_name: str, instance_name: str = "default") -> str:
     """
     Fetch full column metadata for a single table from SQLite.
@@ -372,6 +447,10 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
 
     table_dir = _get_table_directory(instance_name=instance_name)
 
+    # P4: preload all schemas upfront in 2 SQLite queries so get_schema tool
+    # calls are served from memory rather than hitting the DB per table.
+    schema_cache = _preload_schemas_bulk(instance_name=instance_name)
+
     # Best-effort RAG schema retrieval from the recent conversation
     user_texts = [m["content"] for m in messages if m.get("role") == "user"]
     search_query = " ".join(user_texts[-3:]) if user_texts else ""
@@ -448,7 +527,11 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
                 logger.debug("Schema for '%s' already fetched; skipping duplicate", table_name)
                 continue
             logger.info("Gathering agent fetching schema for table: %s", table_name)
-            fetched_schemas[table_name] = _get_full_table_schema(table_name, instance_name=instance_name)
+            # Serve from bulk preload cache; fall back to per-table DB query if missing
+            fetched_schemas[table_name] = (
+                schema_cache.get(table_name)
+                or _get_full_table_schema(table_name, instance_name=instance_name)
+            )
             continue   # re-prompt with the new schema appended
 
         # --- Final answer: question or ready ---

@@ -26,6 +26,7 @@ def _make_support(user_query="show me revenue by product"):
         obj.vdb_config = {}
         obj.tmddb_config = {}
         obj.DBObj = MagicMock()
+        obj.instance_name = "default"
         return obj
 
 
