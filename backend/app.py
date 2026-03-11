@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from contextlib import asynccontextmanager
 from typing import Any, Literal, List, Optional
 import networkx as nx
@@ -42,6 +43,7 @@ class QueryRequest(BaseModel):
     provider: str
     query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
     model: Optional[str] = None
+    instance_name: str = "default"
 
 
 class ExecuteRequest(BaseModel):
@@ -60,12 +62,14 @@ class ChatRequest(BaseModel):
     provider: str
     query_type: Literal["sql", "spark_sql", "dataframe_api", "pandas"] = "sql"
     model: Optional[str] = None
+    instance_name: str = "default"
 
 
 class IngestPreviewRequest(BaseModel):
     sql: str
     provider: str
     model: Optional[str] = None
+    instance_name: str = "default"
 
 
 class ColumnMeta(BaseModel):
@@ -87,6 +91,8 @@ class IngestCommitRequest(BaseModel):
     table_desc: str
     columns: List[ColumnMeta]
     relationships: List[RelationshipMeta] = []
+    instance_name: str = "default"
+    db_type: str = "generic"
 
 
 class RegisterRequest(BaseModel):
@@ -214,6 +220,27 @@ def get_providers_balance():
     return {"balances": balances}
 
 
+@app.get("/api/instances")
+def get_instances():
+    """Return list of distinct instance_name values from tableDesc."""
+    from Utilities.base_utils import accessDB
+    db = accessDB("table", "tableMetadata")
+    try:
+        rows = db.get_data("tableDesc", {}, ["instance_name", "db_type"], fetchtype="All") or []
+        seen = {}
+        for row in rows:
+            iname = row[0] or "default"
+            dtype = row[1] or "generic"
+            if iname not in seen:
+                seen[iname] = dtype
+        instances = [{"instance_name": k, "db_type": v} for k, v in sorted(seen.items())]
+        if not instances:
+            instances = [{"instance_name": "default", "db_type": "generic"}]
+    except Exception:
+        instances = [{"instance_name": "default", "db_type": "generic"}]
+    return {"instances": instances}
+
+
 @app.post("/api/chat")
 def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
     """
@@ -229,7 +256,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
     messages = [m.model_dump() for m in body.messages]
 
     try:
-        gather = gatherRequirements(messages, body.provider, model=body.model)
+        gather = gatherRequirements(messages, body.provider, model=body.model, instance_name=body.instance_name)
     except (ValueError, SQLValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -246,7 +273,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
         return clarify
 
     try:
-        result = generateQuery(gather["summary"], body.provider, body.query_type, messages, model=body.model)
+        result = generateQuery(gather["summary"], body.provider, body.query_type, messages, model=body.model, instance_name=body.instance_name)
     except (ValueError, SQLValidationError) as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
@@ -262,7 +289,7 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
 @app.post("/api/query")
 def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
     try:
-        result = generateQuery(body.query, body.provider, body.query_type, model=body.model)
+        result = generateQuery(body.query, body.provider, body.query_type, model=body.model, instance_name=body.instance_name)
         # result = {"type": "sql"|"code"|"clarify", "content": str}
         return {
             "type": result["type"],          # "sql", "code", or "clarify"
@@ -288,20 +315,25 @@ def post_execute(body: ExecuteRequest, user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/schema")
-def get_schema():
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+def get_schema(instance_name: str = "default"):
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
     from Utilities.base_utils import accessDB, get_config_val
 
-    graph = networkxDB.getObj()
+    graph = kuzuDB.getObj(instance_name)
 
     tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
     db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
     tables = []
     for table in sorted(graph.nodes()):
-        desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table}, ["Desc"])
+        desc_lookup = {"tableName": table}
+        col_lookup = {"TableName": table}
+        if instance_name != "default":
+            desc_lookup["instance_name"] = instance_name
+            col_lookup["instance_name"] = instance_name
+        desc_row = db.get_data(tmddb["tableDescName"], desc_lookup, ["Desc"])
         cols = db.get_data(
-            tmddb["tableColName"], {"TableName": table},
+            tmddb["tableColName"], col_lookup,
             ["ColumnName", "DataType", "Constraints", "Desc"], fetchtype="All"
         ) or []
         tables.append({
@@ -346,7 +378,7 @@ def post_ingest_preview(body: IngestPreviewRequest, user: dict = Depends(get_cur
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
-    source_schema = get_source_schema(parsed["source_tables"])
+    source_schema = get_source_schema(parsed["source_tables"], instance_name=body.instance_name)
     schemas_str = format_source_schemas(source_schema)
     mappings_str = format_column_mappings(parsed["column_mappings"])
 
@@ -395,6 +427,8 @@ def post_ingest_commit(body: IngestCommitRequest, user: dict = Depends(get_curre
             table_desc=body.table_desc,
             columns=[c.model_dump() for c in body.columns],
             relationships=[r.model_dump() for r in body.relationships],
+            instance_name=body.instance_name,
+            db_type=body.db_type,
         )
         return {"success": True, "table": body.table_name}
     except Exception as exc:
@@ -406,14 +440,14 @@ def post_ingest_commit(body: IngestCommitRequest, user: dict = Depends(get_curre
 # ---------------------------------------------------------------------------
 
 @app.get("/api/lineage/{table_name}")
-def get_lineage(table_name: str):
+def get_lineage(table_name: str, instance_name: str = "default"):
     """
     Return the lineage subgraph connected to *table_name* from the NetworkX graph.
     The connected component is returned so the UI can render the actual lineage flow.
     """
-    from MetadataManager.MetadataStore.relationdb import networkxDB
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
 
-    graph = networkxDB.getObj()
+    graph = kuzuDB.getObj(instance_name)
     name = table_name.lower()
 
     if name not in graph.nodes():
@@ -438,6 +472,187 @@ def get_lineage(table_name: str):
             "source": src,
             "target": tgt,
             "joinKeys": data.get("JoinKeys", ""),
+            "joinType": _determine_join_type(
+                data.get("JoinKeys", ""), src, tgt
+            ),
         })
 
     return {"center": name, "nodes": nodes, "edges": edges}
+
+
+@app.get("/api/joinpath")
+def get_join_path(from_table: str, to_table: str, instance_name: str = "default"):
+    """
+    Return the shortest JOIN path between two tables in the schema graph.
+    """
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
+
+    graph = kuzuDB.getObj(instance_name)
+    src = from_table.lower()
+    tgt = to_table.lower()
+
+    if src not in graph.nodes():
+        raise HTTPException(status_code=404, detail=f"Table '{from_table}' not found.")
+    if tgt not in graph.nodes():
+        raise HTTPException(status_code=404, detail=f"Table '{to_table}' not found.")
+    if src == tgt:
+        return {"found": True, "path": [src], "edges": []}
+
+    try:
+        path = nx.shortest_path(graph.to_undirected(), source=src, target=tgt)
+    except nx.NetworkXNoPath:
+        return {"found": False, "path": [], "edges": []}
+
+    edges = []
+    seen_pairs = set()
+    for i in range(len(path) - 1):
+        a, b = path[i], path[i + 1]
+        # prefer the directed edge if it exists, otherwise try the other direction
+        data = graph.get_edge_data(a, b) or graph.get_edge_data(b, a) or {}
+        pair = frozenset({a, b})
+        if pair not in seen_pairs:
+            seen_pairs.add(pair)
+            join_keys = data.get("JoinKeys", "")
+            edges.append({
+                "source": a,
+                "target": b,
+                "joinKeys": join_keys,
+                "joinType": _determine_join_type(join_keys, a, b),
+            })
+
+    return {"found": True, "path": path, "edges": edges}
+
+
+@app.get("/api/derivatives/{table_name}")
+def get_derivatives(table_name: str, instance_name: str = "default"):
+    """
+    Return tables that are pipeline-derived FROM the given table,
+    and whether the given table itself is a derivative.
+    """
+    from MetadataManager.MetadataStore.relationdb import kuzuDB
+    from Utilities.base_utils import accessDB, get_config_val
+
+    graph = kuzuDB.getObj(instance_name)
+    tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
+    db = accessDB(tmddb["info_type"], tmddb["dbName"])
+
+    name = table_name.lower()
+
+    # Tables that have pipeline-type columns are derived tables
+    def _is_derived(tbl):
+        rows = db.get_data(
+            tmddb["tableColName"], {"TableName": tbl, "type_of_logic": "pipeline"},
+            ["ColumnName"], fetchtype="All",
+        ) or []
+        return len(rows) > 0
+
+    # Tables reachable from `name` in the directed graph that are derived tables
+    derived = []
+    if name in graph.nodes():
+        for neighbour in graph.successors(name):
+            if _is_derived(neighbour):
+                desc_row = db.get_data(tmddb["tableDescName"], {"tableName": neighbour}, ["Desc"])
+                derived.append({
+                    "name": neighbour,
+                    "description": (desc_row[0] if desc_row else "") or "",
+                })
+
+    # Also find any table with pipeline columns that lists `name` as a source (via graph predecessors)
+    parent_tables = []
+    if _is_derived(name) and name in graph.nodes():
+        for pred in graph.predecessors(name):
+            if not _is_derived(pred):  # skip other derived tables
+                desc_row = db.get_data(tmddb["tableDescName"], {"tableName": pred}, ["Desc"])
+                parent_tables.append({
+                    "name": pred,
+                    "description": (desc_row[0] if desc_row else "") or "",
+                })
+
+    return {
+        "table": name,
+        "is_derived": _is_derived(name),
+        "derived_tables": derived,
+        "parent_tables": parent_tables,
+    }
+
+
+def _get_metadata_db():
+    from Utilities.base_utils import accessDB, get_config_val
+
+    tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
+    db = accessDB(tmddb["info_type"], tmddb["dbName"])
+    return db, tmddb
+
+
+def _normalize_identifier(expr):
+    match = re.match(
+        r'(?:[`"\[]?([^.`"\]]+)[`"\]]?\.)?[`"\[]?([^.`"\]]+)[`"\]]?',
+        expr.strip(),
+    )
+    if not match:
+        return None, expr.strip().lower()
+    table = match.group(1)
+    column = match.group(2)
+    return (table or "").lower(), (column or expr).lower()
+
+
+def _column_is_unique(db, tmddb, table, column):
+    if not table or not column:
+        return False
+
+    try:
+        rows = db.get_data(
+            tmddb["tableColName"],
+            {"TableName": table, "ColumnName": column},
+            ["Constraints"],
+        ) or []
+    except Exception:
+        return False
+
+    if not rows:
+        return False
+
+    constraints = rows[0]
+    if isinstance(constraints, (list, tuple)):
+        constraints = constraints[0] if constraints else ""
+
+    value = (constraints or "").upper()
+    return "PRIMARY KEY" in value or "UNIQUE" in value
+
+
+def _determine_join_type(join_keys, src, tgt):
+    src = src.lower()
+    tgt = tgt.lower()
+    if not join_keys:
+        return "n:m"
+
+    try:
+        db, tmddb = _get_metadata_db()
+    except Exception:
+        return "n:m"
+
+    expressions = [part.strip() for part in join_keys.split(',') if '=' in part]
+    if not expressions:
+        return "n:m"
+
+    src_unique = False
+    tgt_unique = False
+    for expr in expressions:
+        left, right = expr.split('=', 1)
+        left_table, left_column = _normalize_identifier(left)
+        right_table, right_column = _normalize_identifier(right)
+
+        if left_table == src and right_table == tgt:
+            src_unique = src_unique or _column_is_unique(db, tmddb, src, left_column)
+            tgt_unique = tgt_unique or _column_is_unique(db, tmddb, tgt, right_column)
+        elif left_table == tgt and right_table == src:
+            src_unique = src_unique or _column_is_unique(db, tmddb, src, right_column)
+            tgt_unique = tgt_unique or _column_is_unique(db, tmddb, tgt, left_column)
+
+    if src_unique and tgt_unique:
+        return "1:1"
+    if src_unique:
+        return "1:n"
+    if tgt_unique:
+        return "n:1"
+    return "n:m"

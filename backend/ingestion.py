@@ -180,7 +180,7 @@ def parse_pipeline(sql_text: str) -> dict:
     }
 
 
-def get_source_schema(source_tables: list) -> dict:
+def get_source_schema(source_tables: list, instance_name: str = "default") -> dict:
     """
     Fetch column metadata from SQLite for each source table.
 
@@ -198,9 +198,14 @@ def get_source_schema(source_tables: list) -> dict:
     db = accessDB("table", "tableMetadata")
     schema = {}
     for table in source_tables:
-        desc_row = db.get_data("tableDesc", {"tableName": table}, ["Desc"])
+        desc_lookup = {"tableName": table}
+        col_lookup = {"TableName": table}
+        if instance_name != "default":
+            desc_lookup["instance_name"] = instance_name
+            col_lookup["instance_name"] = instance_name
+        desc_row = db.get_data("tableDesc", desc_lookup, ["Desc"])
         cols = db.get_data(
-            "tableColMetadata", {"TableName": table},
+            "tableColMetadata", col_lookup,
             ["ColumnName", "DataType", "Desc"], fetchtype="All",
         ) or []
         schema[table] = {
@@ -245,12 +250,17 @@ def store_table(
     table_desc: str,
     columns: list,        # [{name, type, constraints, desc}]
     relationships: list,  # [{source, target, join_keys}]
+    instance_name: str = "default",
+    db_type: str = "generic",
 ) -> None:
     """
     Persist a new table's metadata to all storage backends:
       1. SQLite  — tableDesc + tableColMetadata rows
       2. ChromaDB — table description embedding for RAG retrieval
       3. NetworkX — relationship graph edges
+
+    :param instance_name: Named database instance (e.g. "default", "snowflake_prod").
+    :param db_type: Technology label (e.g. "generic", "snowflake", "databricks").
     """
     from Utilities.base_utils import accessDB
     from MetadataManager.MetadataBuilder.importExisting.importData import importDD
@@ -268,7 +278,12 @@ def store_table(
     importer.createTable()
 
     db = accessDB("table", "tableMetadata")
-    db.post_data("tableDesc", [{"tableName": table_name, "Desc": table_desc}])
+    db.post_data("tableDesc", [{
+        "tableName": table_name,
+        "Desc": table_desc,
+        "instance_name": instance_name,
+        "db_type": db_type,
+    }])
 
     records = [
         {
@@ -280,6 +295,8 @@ def store_table(
             "type_of_logic": "pipeline" if col.get("source_expr") else "",
             "base_table": "",
             "Desc": col.get("desc", ""),
+            "instance_name": instance_name,
+            "db_type": db_type,
         }
         for col in columns
     ]
@@ -290,18 +307,18 @@ def store_table(
     vdb.initialize_client()
     vdb.add_new_data(
         table_desc,
-        {"TableName": table_name, "ENV": "PROD", "DB": "DEFAULT", "TType": "System"},
+        {"TableName": table_name, "ENV": db_type, "DB": instance_name, "TType": "System"},
         vdb_metadata,
     )
 
     # 3. NetworkX -------------------------------------------------------------
     if relationships:
-        rel_mgr = Relations()
+        rel_mgr = Relations(instance_name=instance_name)
         edges = [
             [r["source"].lower(), r["target"].lower(), r.get("join_keys", "")]
             for r in relationships
         ]
         rel_mgr.addRelation(edges)
 
-    logger.info("Stored table '%s' with %d columns and %d relationships.",
-                table_name, len(columns), len(relationships))
+    logger.info("Stored table '%s' (instance=%s, db_type=%s) with %d columns and %d relationships.",
+                table_name, instance_name, db_type, len(columns), len(relationships))

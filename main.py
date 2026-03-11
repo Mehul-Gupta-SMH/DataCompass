@@ -151,14 +151,15 @@ def validate_pyspark(llm_output: str) -> dict:
     return result
 
 
-def getRelevantContext(user_query: str) -> dict:
+def getRelevantContext(user_query: str, instance_name: str = "default") -> dict:
     """
     Retrieves the schema context needed to build a SQL query for the given question.
 
     :param user_query: Natural language question from the user.
+    :param instance_name: Named database instance to scope metadata lookups.
     :return: Dict containing user_query, table_list, and join_keys.
     """
-    queryContext = SQLBuilderSupport()
+    queryContext = SQLBuilderSupport(instance_name=instance_name)
     return queryContext.getBuildComponents(user_query)
 
 
@@ -187,6 +188,7 @@ def generateQuery(
     query_type: str = "sql",
     conversation: list = None,
     model: str = None,
+    instance_name: str = "default",
 ) -> dict:
     """
     Generates a SQL, Spark SQL, or PySpark DataFrame API query from a natural language question,
@@ -196,6 +198,7 @@ def generateQuery(
     :param LLMservice: LLM provider to use.
     :param query_type: Output type — 'sql', 'spark_sql', or 'dataframe_api'.
     :param conversation: Full session conversation history [{role, content}, ...] for context.
+    :param instance_name: Named database instance to scope metadata lookups.
     :return: Dict with keys 'type' ('sql'|'code'|'clarify') and 'content' (str).
     """
     if not isinstance(userQuery, str) or not userQuery.strip():
@@ -223,14 +226,14 @@ def generateQuery(
         if user_texts:
             rag_query = " ".join(user_texts[-3:])
 
-    context = getRelevantContext(rag_query)
+    context = getRelevantContext(rag_query, instance_name=instance_name)
 
     # Guard: if RAG returned no tables the prompt schema section will be blank,
     # which confuses the LLM. Fall back to the requirements summary as the query.
     no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
     if no_tables and rag_query != userQuery:
         logger.warning("RAG returned no tables using conversation query; retrying with requirements summary")
-        context = getRelevantContext(userQuery)
+        context = getRelevantContext(userQuery, instance_name=instance_name)
         no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
 
     if no_tables:
@@ -258,7 +261,82 @@ def generateQuery(
     return validate_sql(raw)
 
 
-def _get_full_table_schema(table_name: str) -> str:
+def _preload_schemas_bulk(instance_name: str = "default") -> dict:
+    """
+    Preload all table schemas from SQLite in two queries (one for descriptions,
+    one for all column metadata), returning a dict of table_name -> markdown string.
+
+    This is the P4 optimisation: instead of N×2 SQLite round-trips during the
+    gather loop, we pay 2 queries upfront and serve every get_schema call from
+    an in-memory dict.  Falls back to an empty dict on any error so the loop
+    can still call _get_full_table_schema() per-table as before.
+    """
+    from collections import defaultdict
+    try:
+        from Utilities.base_utils import accessDB, get_config_val
+
+        tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
+        db = accessDB(tmddb["info_type"], tmddb["dbName"])
+
+        inst_filter = {} if instance_name == "default" else {"instance_name": instance_name}
+
+        # Query 1 — all table descriptions
+        desc_rows = db.get_data(
+            tmddb["tableDescName"], inst_filter, ["tableName", "Desc"], fetchtype="All"
+        ) or []
+        desc_map = {row[0]: row[1] for row in desc_rows if row[0]}
+
+        # Query 2 — all column metadata
+        col_rows = db.get_data(
+            tmddb["tableColName"], inst_filter,
+            ["TableName", "ColumnName", "DataType", "Constraints", "Desc",
+             "logic", "type_of_logic", "base_table"],
+            fetchtype="All",
+        ) or []
+
+        cols_map: dict = defaultdict(list)
+        for row in col_rows:
+            if row[0]:
+                cols_map[row[0]].append(row[1:])  # drop TableName prefix
+
+        # Build formatted markdown per table
+        schema_cache: dict = {}
+        for table_name in set(desc_map) | set(cols_map):
+            lines = [f"### {table_name}"]
+            if table_name in desc_map:
+                lines.append(f"> {desc_map[table_name]}")
+            lines.append("")
+
+            cols = cols_map.get(table_name, [])
+            if cols:
+                has_lineage = any(col[3] or col[4] or col[5] for col in cols)
+                if has_lineage:
+                    lines.append("| Column | Type | Constraints | Description | Source Expression | Logic Type | Base Table |")
+                    lines.append("|--------|------|-------------|-------------|-------------------|------------|------------|")
+                    for col in cols:
+                        lines.append(
+                            f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''}"
+                            f" | {col[4] or ''} | {col[5] or ''} | {col[6] or ''} |"
+                        )
+                else:
+                    lines.append("| Column | Type | Constraints | Description |")
+                    lines.append("|--------|------|-------------|-------------|")
+                    for col in cols:
+                        lines.append(f"| {col[0] or ''} | {col[1] or ''} | {col[2] or ''} | {col[3] or ''} |")
+            else:
+                lines.append("_(no columns found for this table)_")
+
+            schema_cache[table_name] = "\n".join(lines)
+
+        logger.debug("Bulk schema preload: %d tables loaded in 2 queries", len(schema_cache))
+        return schema_cache
+
+    except Exception as exc:
+        logger.warning("Bulk schema preload failed, will fall back to per-table fetches: %s", exc)
+        return {}
+
+
+def _get_full_table_schema(table_name: str, instance_name: str = "default") -> str:
     """
     Fetch full column metadata for a single table from SQLite.
 
@@ -272,9 +350,15 @@ def _get_full_table_schema(table_name: str) -> str:
         tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
         db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
-        desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table_name}, ["Desc"])
+        desc_lookup = {"tableName": table_name}
+        col_lookup = {"TableName": table_name}
+        if instance_name != "default":
+            desc_lookup["instance_name"] = instance_name
+            col_lookup["instance_name"] = instance_name
+
+        desc_row = db.get_data(tmddb["tableDescName"], desc_lookup, ["Desc"])
         cols = db.get_data(
-            tmddb["tableColName"], {"TableName": table_name},
+            tmddb["tableColName"], col_lookup,
             ["ColumnName", "DataType", "Constraints", "Desc", "logic", "type_of_logic", "base_table"],
             fetchtype="All",
         ) or []
@@ -310,19 +394,22 @@ def _get_full_table_schema(table_name: str) -> str:
         return f"### {table_name}\n_(schema unavailable: {exc})_"
 
 
-def _get_table_directory() -> str:
+def _get_table_directory(instance_name: str = "default") -> str:
     """Return a compact list of all tables + descriptions for the requirement gathering prompt."""
     try:
-        from MetadataManager.MetadataStore.relationdb import networkxDB
+        from MetadataManager.MetadataStore.relationdb import kuzuDB
         from Utilities.base_utils import accessDB, get_config_val
 
-        graph = networkxDB.getObj()
+        graph = kuzuDB.getObj(instance_name)
         tmddb = get_config_val("retrieval_config", ["tableMDdb"], True)
         db = accessDB(tmddb["info_type"], tmddb["dbName"])
 
         lines = []
         for table in sorted(graph.nodes()):
-            desc_row = db.get_data(tmddb["tableDescName"], {"tableName": table}, ["Desc"])
+            desc_lookup = {"tableName": table}
+            if instance_name != "default":
+                desc_lookup["instance_name"] = instance_name
+            desc_row = db.get_data(tmddb["tableDescName"], desc_lookup, ["Desc"])
             desc = (desc_row[0] if desc_row else "") or ""
             lines.append(f"- **{table}**: {desc}")
 
@@ -332,37 +419,47 @@ def _get_table_directory() -> str:
         return "(table directory unavailable)"
 
 
-_MAX_TOOL_CALLS = 5   # guard against infinite schema-fetching loops
-
-
-def gatherRequirements(messages: list, provider: str, model: str = None) -> dict:
+def gatherRequirements(messages: list, provider: str, model: str = None, instance_name: str = "default") -> dict:
     """
     Agentic requirement gathering loop.
 
-    The LLM can call a get_schema tool (up to _MAX_TOOL_CALLS times) to inspect
-    individual table schemas before deciding to ask a question or declare ready.
+    The LLM can call a get_schema tool (up to gather_requirements.max_tool_calls
+    times, configurable in retrieval_config.YAML) to inspect individual table
+    schemas before deciding to ask a question or declare ready.
 
     Each iteration re-builds the full prompt with all previously fetched schemas
     appended, so the LLM always sees the complete accumulated context.
+
+    :param instance_name: Named database instance to scope all metadata lookups.
 
     Returns:
       {"ready": False, "question": str}  — needs more info from the user
       {"ready": True,  "summary": str}   — enough info; passed to generateQuery
     """
     import json as _json
+    from Utilities.base_utils import get_config_val
 
     if not isinstance(provider, str) or provider.lower() not in _VALID_PROVIDERS:
         raise ValueError(
             f"LLMservice must be one of {sorted(_VALID_PROVIDERS)}, got {provider!r}."
         )
 
-    table_dir = _get_table_directory()
+    try:
+        _max_tool_calls = int(get_config_val("retrieval_config", ["gather_requirements", "max_tool_calls"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _max_tool_calls = 5
+
+    table_dir = _get_table_directory(instance_name=instance_name)
+
+    # P4: preload all schemas upfront in 2 SQLite queries so get_schema tool
+    # calls are served from memory rather than hitting the DB per table.
+    schema_cache = _preload_schemas_bulk(instance_name=instance_name)
 
     # Best-effort RAG schema retrieval from the recent conversation
     user_texts = [m["content"] for m in messages if m.get("role") == "user"]
     search_query = " ".join(user_texts[-3:]) if user_texts else ""
     try:
-        context = getRelevantContext(search_query)
+        context = getRelevantContext(search_query, instance_name=instance_name)
         rag_schema_str = PromptBuilder.format_schema(context)
     except Exception as exc:
         logger.warning("RAG schema retrieval failed: %s", exc)
@@ -375,7 +472,7 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
 
     fetched_schemas: dict[str, str] = {}   # table_name -> markdown schema string
 
-    for attempt in range(_MAX_TOOL_CALLS + 1):
+    for attempt in range(_max_tool_calls + 1):
         # Build the FETCHED_SCHEMAS section from any tool results so far
         if fetched_schemas:
             fetched_section = (
@@ -434,7 +531,11 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
                 logger.debug("Schema for '%s' already fetched; skipping duplicate", table_name)
                 continue
             logger.info("Gathering agent fetching schema for table: %s", table_name)
-            fetched_schemas[table_name] = _get_full_table_schema(table_name)
+            # Serve from bulk preload cache; fall back to per-table DB query if missing
+            fetched_schemas[table_name] = (
+                schema_cache.get(table_name)
+                or _get_full_table_schema(table_name, instance_name=instance_name)
+            )
             continue   # re-prompt with the new schema appended
 
         # --- Final answer: question or ready ---
@@ -453,7 +554,7 @@ def gatherRequirements(messages: list, provider: str, model: str = None) -> dict
         return {"ready": False, "question": raw.strip()}
 
     # Exhausted tool-call budget — ask a generic fallback question
-    logger.warning("Gathering agent exhausted %d tool calls without a final answer", _MAX_TOOL_CALLS)
+    logger.warning("Gathering agent exhausted %d tool calls without a final answer", _max_tool_calls)
     return {
         "ready": False,
         "question": (

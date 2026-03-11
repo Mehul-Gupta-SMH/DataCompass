@@ -34,9 +34,11 @@ vectordb:
 
 
 relationdb:
-  name: 'networkx'
+  name: 'kuzu'
   path: 'C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\MetadataManager\MetadataStore\MetadataStorage\relationsdb\Relations.pickle'
   viz: 'C:\Users\mehul\Documents\Projects - GIT\Agents\SQLCoder\MetadataManager\MetadataStore\MetadataStorage\relationsdb\DataMap.html'
+  # kuzu DB dirs live at: <relationsdb_dir>/kuzudb/<instance_name>/
+  # Relations.pickle is kept as a read-only backup and used for auto-migration on first run.
 
 
 # ---------------------------------------------------------
@@ -46,3 +48,9 @@ tableMDdb:
   dbName : "tableMetadata"
   tableDescName : "tableDesc"
   tableColName : "tableColMetadata"
+
+
+# ---------------------------------------------------------
+
+gather_requirements:
+  max_tool_calls: 5   # max schema-fetch tool calls before fallback question

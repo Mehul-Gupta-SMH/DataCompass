@@ -70,14 +70,19 @@ class CallLLMApi:
         model_config_path = get_config_val("model_config", ["model_config","path"])
 
         with open(model_config_path, "r") as model_config_FObj:
-            model_config = yaml.load(model_config_FObj, yaml.FullLoader)[str(llmService).upper()]
+            full_config = yaml.load(model_config_FObj, yaml.FullLoader)
+            model_config = full_config.get(str(llmService).upper(), {})
 
         # Resolve effective model: explicit override wins, else YAML default
         effective_model = self.model_override or model_config.get("model_name", "")
 
-        # claude_code uses the local CLI — no HTTP template needed
+        # CLI-based providers — no HTTP template needed
         if llmService.lower() == "claude_code":
             self.api_temp_dict = {"model": effective_model or "claude-sonnet-4-5"}
+            return
+
+        if llmService.lower() == "codex_cli":
+            self.api_temp_dict = {"model": effective_model or "codex-mini-latest"}
             return
 
         # Load API calling template for HTTP-based providers

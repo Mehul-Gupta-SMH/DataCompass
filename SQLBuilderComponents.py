@@ -41,9 +41,13 @@ class SQLBuilderSupport:
         join_keys (dict): A dictionary containing table relations and associated join keys.
         table_metadata (dict): A dictionary containing metadata information for tables.
     """
-    def __init__(self):
+    def __init__(self, instance_name: str = "default"):
         """
         Initializes an instance of SQLBuilderSupport class.
+
+        Args:
+            instance_name (str): Named database instance to scope all metadata lookups.
+                                 Defaults to "default" for backward compatibility.
 
         sample format of the table_list
         table_list:
@@ -57,6 +61,7 @@ class SQLBuilderSupport:
             intermediate:
         """
         self.user_query = None
+        self.instance_name = instance_name
         self.table_list = {
             "direct" : {},
             "intermediate" : {}
@@ -117,8 +122,12 @@ class SQLBuilderSupport:
         # Initializing the client
         RetrievalObj.initialize_client()
 
-        # Retrieving data based on the user query
-        results_scored = RetrievalObj.get_data(self.user_query, self.vdb_config["metadata"])
+        # Retrieving data based on the user query, filtered by instance when not "default"
+        results_scored = RetrievalObj.get_data(
+            self.user_query,
+            self.vdb_config["metadata"],
+            instance_name=self.instance_name if self.instance_name != "default" else None,
+        )
 
         # Performing filtering on the retrieved results
         filtered_results = self.__filterRelevantResults__(results_scored)
@@ -135,7 +144,7 @@ class SQLBuilderSupport:
             dict: A dictionary containing table relations and associated join keys.
         """
         # Initializing a Relations object for managing table relations
-        RelationsObj = ManageRelations.Relations(strgType = "networkx")
+        RelationsObj = ManageRelations.Relations(strgType="networkx", instance_name=self.instance_name)
 
         # Retrieving table relations and associated join keys
         self.join_keys = RelationsObj.getRelation(list(self.table_list["direct"].keys()))
@@ -161,9 +170,12 @@ class SQLBuilderSupport:
         """
         # Updating descriptions for intermediate tables
         for table, _ in self.table_list["intermediate"].items():
+            lookup = {'tableName': table}
+            if self.instance_name != "default":
+                lookup['instance_name'] = self.instance_name
             desc_row = self.DBObj.get_data(
                 tableName=self.tmddb_config['tableDescName'],
-                lookupDict={'tableName': table},
+                lookupDict=lookup,
                 lookupVal=['Desc'],
             )
             self.table_list["intermediate"][table]["description"] = desc_row[0] if desc_row else ""
@@ -226,10 +238,13 @@ class SQLBuilderSupport:
 
         for ttype, table_dict in self.table_list.items():
             for table, tablemd in table_dict.items():
+                col_lookup = {'TableName': table}
+                if self.instance_name != "default":
+                    col_lookup['instance_name'] = self.instance_name
                 # Extracting column metadata for the current table
                 fullColMetadata = self.DBObj.get_data(
                     tableName=self.tmddb_config['tableColName'],
-                    lookupDict={'TableName': table},
+                    lookupDict=col_lookup,
                     lookupVal=['ColumnName', 'DataType', 'Constraints', 'Desc'],
                     fetchtype="All"
                 )
@@ -237,7 +252,7 @@ class SQLBuilderSupport:
                 self.table_list[ttype][table]['columns'] = self.__filterAdditionalColumns__(fullColMetadata)
 
 
-    def getBuildComponents(self, user_query: str) -> dict:
+    def getBuildComponents(self, user_query: str, instance_name: str = None) -> dict:
         """
         Get components necessary for building the SQL query.
 
@@ -253,6 +268,8 @@ class SQLBuilderSupport:
         """
 
         self.user_query = user_query
+        if instance_name is not None:
+            self.instance_name = instance_name
 
         # Get relevant tables
         self.__getRelevantTables__()

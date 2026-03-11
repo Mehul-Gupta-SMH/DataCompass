@@ -160,9 +160,23 @@ export default function SchemaERD() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedTable, setSelectedTable] = useState(null)
+  const [instance, setInstance] = useState('default')
+  const [instances, setInstances] = useState([{ instance_name: 'default', db_type: 'generic' }])
+
+  // Fetch available instances on mount
+  useEffect(() => {
+    fetch('/api/instances')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.instances?.length) setInstances(data.instances)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
-    fetch('/api/schema')
+    setLoading(true)
+    setError('')
+    fetch(`/api/schema?instance_name=${encodeURIComponent(instance)}`)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json()
@@ -170,6 +184,8 @@ export default function SchemaERD() {
       .then((data) => {
         if (!data.tables.length) {
           setLoading(false)
+          setNodes([])
+          setEdges([])
           return
         }
 
@@ -217,7 +233,7 @@ export default function SchemaERD() {
         setError(`Failed to load schema: ${err.message}`)
         setLoading(false)
       })
-  }, [])
+  }, [instance])
 
   const onNodeClick = useCallback((_, node) => {
     setSelectedTable(node.data)
@@ -237,41 +253,74 @@ export default function SchemaERD() {
     )
   }, [setNodes])
 
+  const instanceToolbar = (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '6px 10px', background: '#f9fafb',
+      borderBottom: '1px solid #e5e7eb', flexShrink: 0,
+    }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: '#6b7280' }}>Instance</span>
+      <select
+        style={{ padding: '4px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+        value={instance}
+        onChange={(e) => { setSelectedTable(null); setInstance(e.target.value) }}
+      >
+        {instances.map((i) => (
+          <option key={i.instance_name} value={i.instance_name}>
+            {i.instance_name}{i.db_type !== 'generic' ? ` (${i.db_type})` : ''}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+
   if (loading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 40, color: '#555' }}>
-        Loading schema…
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
+        {instanceToolbar}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 40, color: '#555' }}>
+          Loading schema…
+        </div>
       </div>
     )
   }
 
   if (error) {
     return (
-      <div
-        style={{
-          margin: 20,
-          padding: 16,
-          background: '#fee2e2',
-          border: '1px solid #fca5a5',
-          borderRadius: 6,
-          color: '#991b1b',
-        }}
-      >
-        {error}
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
+        {instanceToolbar}
+        <div
+          style={{
+            margin: 20,
+            padding: 16,
+            background: '#fee2e2',
+            border: '1px solid #fca5a5',
+            borderRadius: 6,
+            color: '#991b1b',
+          }}
+        >
+          {error}
+        </div>
       </div>
     )
   }
 
   if (!nodes.length) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', padding: 40, color: '#888' }}>
-        No schema data available. Import relations and table metadata first.
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
+        {instanceToolbar}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 40, color: '#888' }}>
+          No schema data available. Import relations and table metadata first.
+        </div>
       </div>
     )
   }
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 100px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 100px)' }}>
+      {instanceToolbar}
+
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <ReactFlow
           nodes={nodes}
@@ -291,6 +340,7 @@ export default function SchemaERD() {
       {selectedTable && (
         <TableDetailPane table={selectedTable} onClose={handleClose} />
       )}
+      </div>
     </div>
   )
 }

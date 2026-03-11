@@ -42,5 +42,56 @@ class TestCheckClaudeCode(unittest.TestCase):
         self.assertEqual(info["label"], "CLI Claude Code CLI 1.2.3 · 1,234↑ 56↓ tok · $0.0470")
 
 
+class TestCheckAnthropic(unittest.TestCase):
+    _HEADERS = {"x-api-key": "test-key", "anthropic-version": "2023-06-01"}
+
+    def _mock_get(self, status_code, json_body=None):
+        r = SimpleNamespace(status_code=status_code)
+        r.json = lambda: (json_body or {})
+        return r
+
+    def _mock_post(self, status_code, json_body=None):
+        r = SimpleNamespace(status_code=status_code)
+        r.json = lambda: (json_body or {})
+        return r
+
+    def test_invalid_key(self):
+        with patch("backend.balance.requests.get", return_value=self._mock_get(401)), \
+             patch("backend.balance.requests.post"):
+            info = balance._check_anthropic("bad-key")
+
+        self.assertFalse(info["available"])
+        self.assertEqual(info["status"], "invalid_key")
+        self.assertEqual(info["label"], "Invalid key")
+
+    def test_no_credits(self):
+        billing_err = {"error": {"message": "Your account has run out of credits."}}
+        with patch("backend.balance.requests.get", return_value=self._mock_get(200)), \
+             patch("backend.balance.requests.post", return_value=self._mock_post(400, billing_err)):
+            info = balance._check_anthropic("valid-key")
+
+        self.assertFalse(info["available"])
+        self.assertEqual(info["status"], "no_balance")
+        self.assertEqual(info["label"], "No credits")
+
+    def test_valid_key_balance_unavailable(self):
+        with patch("backend.balance.requests.get", return_value=self._mock_get(200)), \
+             patch("backend.balance.requests.post", return_value=self._mock_post(200)):
+            info = balance._check_anthropic("valid-key")
+
+        self.assertTrue(info["available"])
+        self.assertEqual(info["status"], "unavailable")
+        self.assertEqual(info["label"], "N/A")
+
+    def test_network_error_on_models_probe(self):
+        import requests as req
+        with patch("backend.balance.requests.get", side_effect=req.RequestException("timeout")), \
+             patch("backend.balance.requests.post", return_value=self._mock_post(200)):
+            info = balance._check_anthropic("any-key")
+
+        self.assertTrue(info["available"])
+        self.assertEqual(info["status"], "unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()

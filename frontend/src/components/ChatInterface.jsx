@@ -120,6 +120,8 @@ export default function ChatInterface({ providers }) {
   const [balances, setBalances] = useState({})
   const [sessions, setSessions] = useState([])
   const [currentSessionId, setCurrentSessionId] = useState(null)
+  const [instance, setInstance] = useState('default')
+  const [instances, setInstances] = useState([{ instance_name: 'default', db_type: 'generic' }])
   const bottomRef       = useRef(null)
   const sessionIdRef    = useRef(null)
   const skipNextSaveRef = useRef(false)  // skip auto-save when loading a session
@@ -145,6 +147,16 @@ export default function ChatInterface({ providers }) {
       .then((data) => setBalances(data.balances ?? {}))
       .catch(() => {})
   }, [providers])
+
+  // Fetch available instances
+  useEffect(() => {
+    fetch('/api/instances')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.instances?.length) setInstances(data.instances)
+      })
+      .catch(() => {})
+  }, [])
 
   // Load sessions from server on mount
   useEffect(() => {
@@ -223,12 +235,12 @@ export default function ChatInterface({ providers }) {
 
   // ---- API call ----------------------------------------------------------
 
-  async function _callApi(history, prov, qType, retryLabel, mdl) {
+  async function _callApi(history, prov, qType, retryLabel, mdl, inst) {
     setLoading(true)
     try {
       const res = await apiFetch('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ messages: history, provider: prov, query_type: qType, model: mdl }),
+        body: JSON.stringify({ messages: history, provider: prov, query_type: qType, model: mdl, instance_name: inst ?? instance }),
       })
       const data = await res.json()
 
@@ -264,7 +276,7 @@ export default function ChatInterface({ providers }) {
     const updated = [...messages, userEntry]
     setMessages(updated)
 
-    await _callApi(buildHistory(updated), provider, queryType, text, model)
+    await _callApi(buildHistory(updated), provider, queryType, text, model, instance)
   }
 
   function handleRetry(failedMsg) {
@@ -276,7 +288,7 @@ export default function ChatInterface({ providers }) {
     const retryHistory = prior
       .filter((m) => m.type === 'text')
       .map((m) => ({ role: m.role, content: m.content }))
-    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery, model)
+    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery, model, instance)
   }
 
   async function handleOptionSelect(optionText) {
@@ -290,7 +302,7 @@ export default function ChatInterface({ providers }) {
     const userEntry = { id: nextId(), role: 'user', type: 'text', content: optionText }
     const updated = [...messages, userEntry]
     setMessages(updated)
-    await _callApi(buildHistory(updated), provider, queryType, optionText, model)
+    await _callApi(buildHistory(updated), provider, queryType, optionText, model, instance)
   }
 
   function handleKeyDown(e) {
@@ -370,6 +382,20 @@ export default function ChatInterface({ providers }) {
           >
             {Object.entries(QUERY_TYPE_LABELS).map(([v, l]) => (
               <option key={v} value={v}>{l}</option>
+            ))}
+          </select>
+
+          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 500, marginLeft: 8 }}>Instance</span>
+          <select
+            style={{ padding: '4px 10px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff' }}
+            value={instance}
+            onChange={(e) => setInstance(e.target.value)}
+            disabled={loading}
+          >
+            {instances.map((i) => (
+              <option key={i.instance_name} value={i.instance_name}>
+                {i.instance_name}
+              </option>
             ))}
           </select>
 
