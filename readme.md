@@ -99,12 +99,19 @@ imp.importData("path/to/customers.json")
 ```python
 from MetadataManager.MetadataStore.ManageRelations import Relations
 
-rel = Relations(strgType="networkx")
+rel = Relations()   # default backend: Kuzu embedded graph DB
 rel.addRelation([
     ("orders", "customers",   ["orders.customer_id = customers.customer_id"]),
     ("orders", "order_items", ["orders.order_id = order_items.order_id"]),
 ])
 ```
+
+> **Multi-instance:** Pass `instance_name` to scope metadata to a named DB instance:
+> ```python
+> imp = importDD(instance_name="prod_snowflake", db_type="snowflake")
+> rel = Relations(instance_name="prod_snowflake")
+> ```
+> All API endpoints (`/api/chat`, `/api/schema`, `/api/joinpath`, etc.) also accept `?instance_name=` as a query parameter.
 
 ### 4. Start the app
 
@@ -197,13 +204,30 @@ One JSON file per table:
 
 ---
 
+## Configuration
+
+### Provider balance & availability
+
+`GET /api/providers/balance` checks credit balance for every configured provider and returns availability labels shown in the UI dropdowns. Providers with invalid keys or no credit are greyed out automatically.
+
+### Tuning the requirement-gathering loop
+
+The assistant fetches table schemas in an agentic loop before generating a query. The max number of schema-fetch calls per turn is configurable in `Utilities/retrieval_config.YAML`:
+
+```yaml
+gather_requirements:
+  max_tool_calls: 5   # increase for large schemas; decrease for faster (less thorough) responses
+```
+
+---
+
 ## Running Tests
 
 ```bash
 python -m pytest tests/ -v
 ```
 
-94 tests, no API keys or ML models required — all external dependencies are mocked in `tests/conftest.py`.
+108 tests, no API keys or ML models required — all external dependencies are mocked in `tests/conftest.py`.
 
 ---
 
@@ -211,11 +235,13 @@ python -m pytest tests/ -v
 
 ```
 SQLCoder/
-├── main.py                    # Core logic: generateQuery, gatherRequirements
+├── main.py                    # Core logic: generateQuery, gatherRequirements, _preload_schemas_bulk
 ├── SQLBuilderComponents.py    # RAG retrieval pipeline orchestration
 ├── backend/
 │   ├── app.py                 # FastAPI application + all endpoints
-│   └── auth.py                # JWT auth, user accounts, sessions (SQLite)
+│   ├── auth.py                # JWT auth, user accounts, sessions (SQLite)
+│   ├── balance.py             # Provider credit/availability checker (GET /api/providers/balance)
+│   └── ingestion.py           # Pipeline SQL parsing + LLM-assisted data dictionary generation
 ├── frontend/
 │   └── src/
 │       ├── App.jsx
@@ -226,9 +252,14 @@ SQLCoder/
 │   ├── AllAPICaller.py        # Multi-provider HTTP + subprocess LLM client
 │   ├── PromptBuilder.py       # Prompt templates + schema formatter
 │   └── APIHeads/              # Per-provider JSON request templates
-├── MetadataManager/           # ChromaDB (vector store) + NetworkX (relation graph)
+├── MetadataManager/
+│   └── MetadataStore/
+│       ├── relationdb/
+│       │   ├── kuzuDB.py      # Kuzu embedded graph DB (default) — auto-migrates Relations.pickle
+│       │   └── networkxDB.py  # Legacy NetworkX backend (still available via strgType="networkx")
+│       └── vdb/               # ChromaDB vector store abstraction
 ├── Utilities/                 # Config loader, SQLite CRUD, YAML configs
-└── tests/                     # pytest suite (94 tests)
+└── tests/                     # pytest suite (108 tests)
 ```
 
 For architecture deep-dives and extension guides see **[DEVELOPER.md](DEVELOPER.md)**.
