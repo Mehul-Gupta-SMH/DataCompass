@@ -1,0 +1,10 @@
+[2026-03-11 18:00] Claude | uvicorn backend.app:app --reload | Backend started on :8000, startup complete
+[2026-03-11 18:05] Claude | curl /api/schema | 500 Internal Server Error — kuzuDB dir missing
+[2026-03-11 18:05] Claude | python kuzuDB.getObj('default') | Fixed: added os.makedirs; success, 5+ nodes loaded
+[2026-03-11 18:06] Claude | pkill uvicorn + restart | Backend restarted, startup complete
+[2026-03-11 18:07] Claude | curl /api/schema | 200 OK — 14 tables returned
+[2026-03-11 18:10] Claude | PYTHONPATH='.' pytest tests/ -q | 108 passed, 1 warning
+[2026-03-11 18:12] Codex  | codex exec — run tests + commit | 108 passed; committed f0b7449 on Claude/Playground/Dev (7 files, +132/-16 lines)
+[2026-03-13 10:57] Claude | python demo/record_demo.py | Demo recorded: demo/polyql_demo.webm (3.9 MB) — 6 steps: login, Codex provider, tough query, clarify exchange, ERD tour, join path
+[2026-03-13 10:54] Claude | pip install playwright + playwright install chromium | Playwright 1.58.0 + Chromium installed for demo automation
+[2026-03-13 10:54] Claude | Created demo user (demo/demo1234) in app.db | For reproducible demo login
