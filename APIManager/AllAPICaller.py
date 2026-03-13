@@ -224,3 +224,128 @@ class CallLLMApi:
                 f"Status code: {response.status_code} — {detail}"
             )
 
+    def CallServiceStream(self, prompt: str):
+        """
+        Generator version of CallService — yields text token strings as they arrive
+        from the LLM provider's streaming API.
+
+        For providers that do not support streaming (claude_code, codex_cli) this
+        falls back to a single-shot call and yields the full response as one chunk.
+
+        Args:
+            prompt (str): The prompt text.
+
+        Yields:
+            str: Individual token/chunk strings.
+        """
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt must be a non-empty string.")
+
+        # CLI providers — no native streaming; fall back to batch
+        if self.llmService.lower() in ("claude_code", "codex_cli"):
+            yield self.CallService(prompt)
+            return
+
+        if self.llmService.lower() in ("open_ai", "groq", "codex", "anthropic"):
+            self.api_temp_dict["payload"]["messages"][0]["content"] = prompt
+
+        if self.llmService.lower() == "google":
+            self.api_temp_dict["payload"]["contents"][0]["parts"][0]["text"] = prompt
+
+        if self.llmService.lower() in ("open_ai", "groq", "codex"):
+            payload = {**self.api_temp_dict["payload"], "stream": True}
+            with requests.post(
+                self.api_temp_dict["endpoint"],
+                headers=self.api_temp_dict["headers"],
+                json=payload,
+                stream=True,
+                timeout=_REQUEST_TIMEOUT,
+            ) as response:
+                if response.status_code != 200:
+                    raise ValueError(
+                        f"LLM API call failed: {response.status_code} — {response.text[:200]}"
+                    )
+                for raw_line in response.iter_lines():
+                    line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        token = (chunk.get("choices") or [{}])[0].get("delta", {}).get("content") or ""
+                        if token:
+                            yield token
+                    except Exception:
+                        pass
+            return
+
+        if self.llmService.lower() == "anthropic":
+            payload = {**self.api_temp_dict["payload"], "stream": True}
+            with requests.post(
+                self.api_temp_dict["endpoint"],
+                headers=self.api_temp_dict["headers"],
+                json=payload,
+                stream=True,
+                timeout=_REQUEST_TIMEOUT,
+            ) as response:
+                if response.status_code != 200:
+                    raise ValueError(
+                        f"LLM API call failed: {response.status_code} — {response.text[:200]}"
+                    )
+                for raw_line in response.iter_lines():
+                    line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                    if not line or not line.startswith("data: "):
+                        continue
+                    try:
+                        chunk = json.loads(line[6:])
+                        if chunk.get("type") == "content_block_delta":
+                            token = chunk.get("delta", {}).get("text") or ""
+                            if token:
+                                yield token
+                    except Exception:
+                        pass
+            return
+
+        if self.llmService.lower() == "google":
+            # Google streaming uses :streamGenerateContent?alt=sse endpoint
+            endpoint = self.api_temp_dict["endpoint"].replace(
+                ":generateContent", ":streamGenerateContent"
+            )
+            if "?" not in endpoint:
+                endpoint += "?alt=sse"
+            else:
+                endpoint += "&alt=sse"
+            with requests.post(
+                endpoint,
+                headers=self.api_temp_dict["headers"],
+                json=self.api_temp_dict["payload"],
+                stream=True,
+                timeout=_REQUEST_TIMEOUT,
+            ) as response:
+                if response.status_code != 200:
+                    raise ValueError(
+                        f"LLM API call failed: {response.status_code} — {response.text[:200]}"
+                    )
+                for raw_line in response.iter_lines():
+                    line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                    if not line or not line.startswith("data: "):
+                        continue
+                    try:
+                        chunk = json.loads(line[6:])
+                        token = (
+                            chunk.get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [{}])[0]
+                            .get("text") or ""
+                        )
+                        if token:
+                            yield token
+                    except Exception:
+                        pass
+            return
+
+        # Unknown provider — fall back to batch
+        yield self.CallService(prompt)
+

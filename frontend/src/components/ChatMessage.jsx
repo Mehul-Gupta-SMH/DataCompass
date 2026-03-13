@@ -196,6 +196,41 @@ export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
     )
   }
 
+  // ---- Streaming bubble (tokens arriving) ---------------------------------
+  if (msg.type === 'streaming') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 14 }}>
+        <div style={{ maxWidth: '80%', minWidth: 280 }}>
+          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 4, marginLeft: 2 }}>
+            Generating…
+          </div>
+          <div
+            style={{
+              background: '#1e1e2e',
+              borderRadius: '4px 12px 12px 12px',
+              overflow: 'hidden',
+            }}
+          >
+            <pre
+              style={{
+                margin: 0,
+                padding: '14px 16px',
+                color: '#cdd6f4',
+                fontSize: 13,
+                lineHeight: 1.6,
+                overflowX: 'auto',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {msg.content || <span style={{ opacity: 0.4 }}>●●●</span>}
+            </pre>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // ---- Error bubble --------------------------------------------------------
   if (msg.type === 'error') {
     return (

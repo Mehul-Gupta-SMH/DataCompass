@@ -235,26 +235,96 @@ export default function ChatInterface({ providers }) {
 
   // ---- API call ----------------------------------------------------------
 
-  async function _callApi(history, prov, qType, retryLabel, mdl, inst) {
+  // Streaming call — uses /api/chat/stream SSE endpoint.
+  // Tokens arrive incrementally and update the in-progress bubble; the final
+  // "done" event replaces it with the validated, formatted response.
+  async function _callApiStream(history, prov, qType, retryLabel, mdl, inst) {
     setLoading(true)
+    // Insert a placeholder streaming bubble so the user sees tokens arriving.
+    const streamId = nextId()
+    setMessages((prev) => [
+      ...prev,
+      { id: streamId, role: 'assistant', type: 'streaming', content: '', queryType: qType },
+    ])
+
     try {
-      const res = await apiFetch('/api/chat', {
+      const token = localStorage.getItem('poly_ql_token') || ''
+      const res = await fetch('/api/chat/stream', {
         method: 'POST',
-        body: JSON.stringify({ messages: history, provider: prov, query_type: qType, model: mdl, instance_name: inst ?? instance }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          messages: history,
+          provider: prov,
+          query_type: qType,
+          model: mdl,
+          instance_name: inst ?? instance,
+        }),
       })
-      const data = await res.json()
 
       if (!res.ok) {
-        pushMsg({ role: 'assistant', type: 'error', content: data.detail ?? 'An error occurred.', retryQuery: retryLabel })
+        const errData = await res.json().catch(() => ({}))
+        setMessages((prev) => prev.map((m) =>
+          m.id === streamId
+            ? { ...m, type: 'error', content: errData.detail ?? 'An error occurred.', retryQuery: retryLabel }
+            : m
+        ))
         return
       }
 
-      const msgType = data.type === 'clarify' ? 'clarify' : 'sql'
-      const msg = { role: 'assistant', type: msgType, content: data.sql, queryType: qType }
-      if (data.options?.length) msg.options = data.options
-      pushMsg(msg)
+      if (res.status === 401) {
+        localStorage.removeItem('poly_ql_token')
+        window.dispatchEvent(new Event('auth:logout'))
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete SSE lines from buffer
+        const lines = buffer.split('\n')
+        buffer = lines.pop() // last fragment — may be incomplete
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const evt = JSON.parse(line.slice(6))
+
+            if (evt.event === 'token') {
+              setMessages((prev) => prev.map((m) =>
+                m.id === streamId ? { ...m, content: m.content + evt.data } : m
+              ))
+            } else if (evt.event === 'done') {
+              const msgType = evt.type === 'clarify' ? 'clarify' : 'sql'
+              const finalMsg = { id: streamId, role: 'assistant', type: msgType, content: evt.content, queryType: evt.query_type ?? qType }
+              if (evt.options?.length) finalMsg.options = evt.options
+              setMessages((prev) => prev.map((m) => m.id === streamId ? finalMsg : m))
+            } else if (evt.event === 'error') {
+              setMessages((prev) => prev.map((m) =>
+                m.id === streamId
+                  ? { ...m, type: 'error', content: evt.detail ?? 'An error occurred.', retryQuery: retryLabel }
+                  : m
+              ))
+            }
+          } catch {
+            // Malformed SSE line — skip
+          }
+        }
+      }
     } catch {
-      pushMsg({ role: 'assistant', type: 'error', content: 'Network error — is the backend running?', retryQuery: retryLabel })
+      setMessages((prev) => prev.map((m) =>
+        m.id === streamId
+          ? { ...m, type: 'error', content: 'Network error — is the backend running?', retryQuery: retryLabel }
+          : m
+      ))
     } finally {
       setLoading(false)
     }
@@ -276,7 +346,7 @@ export default function ChatInterface({ providers }) {
     const updated = [...messages, userEntry]
     setMessages(updated)
 
-    await _callApi(buildHistory(updated), provider, queryType, text, model, instance)
+    await _callApiStream(buildHistory(updated), provider, queryType, text, model, instance)
   }
 
   function handleRetry(failedMsg) {
@@ -288,7 +358,7 @@ export default function ChatInterface({ providers }) {
     const retryHistory = prior
       .filter((m) => m.type === 'text')
       .map((m) => ({ role: m.role, content: m.content }))
-    _callApi(retryHistory, provider, queryType, failedMsg.retryQuery, model, instance)
+    _callApiStream(retryHistory, provider, queryType, failedMsg.retryQuery, model, instance)
   }
 
   async function handleOptionSelect(optionText) {
@@ -302,7 +372,7 @@ export default function ChatInterface({ providers }) {
     const userEntry = { id: nextId(), role: 'user', type: 'text', content: optionText }
     const updated = [...messages, userEntry]
     setMessages(updated)
-    await _callApi(buildHistory(updated), provider, queryType, optionText, model, instance)
+    await _callApiStream(buildHistory(updated), provider, queryType, optionText, model, instance)
   }
 
   function handleKeyDown(e) {
