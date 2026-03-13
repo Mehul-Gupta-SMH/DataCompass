@@ -54,3 +54,8 @@ tableMDdb:
 
 gather_requirements:
   max_tool_calls: 5   # max schema-fetch tool calls before fallback question
+
+re_retrieval:
+  max_rounds: 3          # total query attempts (initial + up to 2 rewrites)
+  min_direct_tables: 2   # stop early when this many direct tables are found
+  rewrite_provider: null # null = use the same provider as the generateQuery caller

@@ -8,12 +8,14 @@ import networkx as nx
 # Ensure project root is on the path so `main` can be imported directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import json as _json
+
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-from main import generateQuery, gatherRequirements, SQLValidationError, _VALID_PROVIDERS
+from main import generateQuery, generateQueryStream, gatherRequirements, SQLValidationError, _VALID_PROVIDERS
 from backend.auth import get_current_user
 
 
@@ -284,6 +286,80 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
         "sql": result["content"],
         "query_type": body.query_type,
     }
+
+
+@app.post("/api/chat/stream")
+def post_chat_stream(body: ChatRequest, user: dict = Depends(get_current_user)):
+    """
+    Streaming version of /api/chat.
+
+    Phase 1 (gatherRequirements) runs synchronously — it must complete before we
+    know whether to ask a clarifying question or generate a query.
+
+    If Phase 1 needs clarification: emits a single SSE event with type "clarify" then closes.
+    If Phase 1 is ready: streams Phase 2 (generateQuery) token-by-token via SSE.
+
+    SSE event shapes:
+      data: {"event":"token","data":"<chunk>"}
+      data: {"event":"done","type":"sql"|"code"|"clarify","content":"<full text>","query_type":"sql"}
+      data: {"event":"error","detail":"<message>"}
+    """
+    messages = [m.model_dump() for m in body.messages]
+
+    try:
+        gather = gatherRequirements(messages, body.provider, model=body.model, instance_name=body.instance_name)
+    except (ValueError, SQLValidationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Requirement gathering failed: {exc}")
+
+    def _sse(payload: dict) -> str:
+        return f"data: {_json.dumps(payload)}\n\n"
+
+    if not gather.get("ready"):
+        clarify_payload = {
+            "event": "done",
+            "type": "clarify",
+            "content": gather.get("question", "Could you provide more details?"),
+            "query_type": body.query_type,
+        }
+        if gather.get("options"):
+            clarify_payload["options"] = gather["options"]
+
+        def _clarify_gen():
+            yield _sse(clarify_payload)
+
+        return StreamingResponse(_clarify_gen(), media_type="text/event-stream")
+
+    def _stream_gen():
+        try:
+            for chunk in generateQueryStream(
+                gather["summary"],
+                body.provider,
+                body.query_type,
+                messages,
+                model=body.model,
+                instance_name=body.instance_name,
+            ):
+                if chunk["event"] == "token":
+                    yield _sse({"event": "token", "data": chunk["data"]})
+                elif chunk["event"] == "done":
+                    yield _sse({
+                        "event": "done",
+                        "type": chunk["type"],
+                        "content": chunk["content"],
+                        "query_type": body.query_type,
+                    })
+        except (ValueError, SQLValidationError) as exc:
+            yield _sse({"event": "error", "detail": str(exc)})
+        except Exception as exc:
+            yield _sse({"event": "error", "detail": f"Query generation failed: {exc}"})
+
+    return StreamingResponse(
+        _stream_gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/query")
