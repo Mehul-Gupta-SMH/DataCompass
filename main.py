@@ -171,6 +171,117 @@ _PROMPT_MAP = {
 }
 
 
+def _is_retrieval_confident(context: dict, min_tables: int) -> bool:
+    """Return True when the context contains at least min_tables direct tables."""
+    direct = context.get("table_list", {}).get("direct", {})
+    return len(direct) >= min_tables
+
+
+def _adaptive_retrieval(
+    initial_query: str,
+    LLMservice: str,
+    model: str = None,
+    instance_name: str = "default",
+) -> dict:
+    """
+    Adaptive re-retrieval loop (R1).
+
+    Runs getRelevantContext up to re_retrieval.max_rounds times.  On each round
+    where the confidence check fails, the LLM is asked to rewrite the search
+    query using the table directory and the tables found so far.  Results from
+    all rounds are merged (union on direct + intermediate tables) before return.
+
+    Falls back gracefully on any error; always returns a context dict.
+    """
+    from Utilities.base_utils import get_config_val
+
+    try:
+        _max_rounds = int(get_config_val("retrieval_config", ["re_retrieval", "max_rounds"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _max_rounds = 3
+
+    try:
+        _min_tables = int(get_config_val("retrieval_config", ["re_retrieval", "min_direct_tables"]))
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _min_tables = 2
+
+    try:
+        _rewrite_provider = get_config_val("retrieval_config", ["re_retrieval", "rewrite_provider"]) or LLMservice
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _rewrite_provider = LLMservice
+
+    # Skip loop when table directory is empty — nothing for the LLM to rewrite against
+    table_dir = _get_table_directory(instance_name=instance_name)
+    if not table_dir.strip() or "(no tables" in table_dir or "(table directory unavailable)" in table_dir:
+        logger.warning("R1: table directory is empty — skipping adaptive retrieval")
+        return getRelevantContext(initial_query, instance_name=instance_name)
+
+    best_context: dict = {}
+    best_direct_count = -1
+    current_query = initial_query
+    prev_direct_names: set = set()
+
+    for round_num in range(1, _max_rounds + 1):
+        context = getRelevantContext(current_query, instance_name=instance_name)
+
+        direct = context.get("table_list", {}).get("direct", {})
+        direct_names = set(direct.keys())
+
+        # Track best result seen so far
+        if len(direct_names) > best_direct_count:
+            best_direct_count = len(direct_names)
+            best_context = context
+
+        if _is_retrieval_confident(context, _min_tables):
+            logger.info("R1: confident after round %d (%d direct tables found)", round_num, len(direct_names))
+            return context
+
+        if round_num == _max_rounds:
+            logger.warning("R1: max_rounds (%d) exhausted — returning best context (%d direct tables)", _max_rounds, best_direct_count)
+            break
+
+        # Stagnation check — stop if no new tables found vs last round
+        if round_num > 1 and direct_names == prev_direct_names:
+            logger.info("R1: stagnation detected on round %d — stopping early", round_num)
+            break
+
+        prev_direct_names = direct_names
+
+        # Build rewriter prompt
+        found_list = ", ".join(sorted(direct_names)) if direct_names else "none"
+        rewrite_prompt = (
+            "You are a database search assistant. Your job is to rewrite a search query "
+            "to find relevant database tables.\n\n"
+            f'Original user question:\n"{initial_query}"\n\n'
+            f'Previous search query (did not find enough tables):\n"{current_query}"\n\n'
+            f"Tables found so far: {found_list}\n\n"
+            f"Available tables in the database:\n{table_dir}\n\n"
+            "Write ONE alternative search query (1-2 sentences) that uses different wording, "
+            "synonyms, or more general/specific terms to find the tables needed to answer "
+            "the original question. Output ONLY the rewritten query text — no explanation, "
+            "no JSON, no quotes."
+        )
+
+        try:
+            rewritten = CallLLMApi(_rewrite_provider, model=model).CallService(rewrite_prompt).strip()
+        except Exception as exc:
+            logger.warning("R1: rewrite LLM call failed on round %d: %s — using best context so far", round_num, exc)
+            break
+
+        if not rewritten:
+            logger.warning("R1: LLM returned empty rewrite on round %d — stopping", round_num)
+            break
+
+        if rewritten == current_query:
+            logger.info("R1: LLM returned identical query on round %d — stopping", round_num)
+            break
+
+        logger.info("R1: round %d rewrite: %r", round_num + 1, rewritten[:120])
+        current_query = rewritten
+
+    return best_context if best_context else getRelevantContext(initial_query, instance_name=instance_name)
+
+
 def _format_conversation(conversation: list) -> str:
     """Format a list of {role, content} message dicts into a readable dialogue string."""
     if not conversation:
@@ -226,18 +337,11 @@ def generateQuery(
         if user_texts:
             rag_query = " ".join(user_texts[-3:])
 
-    context = getRelevantContext(rag_query, instance_name=instance_name)
+    context = _adaptive_retrieval(rag_query, LLMservice, model=model, instance_name=instance_name)
 
-    # Guard: if RAG returned no tables the prompt schema section will be blank,
-    # which confuses the LLM. Fall back to the requirements summary as the query.
     no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
-    if no_tables and rag_query != userQuery:
-        logger.warning("RAG returned no tables using conversation query; retrying with requirements summary")
-        context = getRelevantContext(userQuery, instance_name=instance_name)
-        no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
-
     if no_tables:
-        logger.error("RAG returned no tables for query %r — schema section will be empty", rag_query)
+        logger.error("R1: all retrieval rounds exhausted with no tables found for query %r — schema section will be empty", rag_query)
 
     schema_str = PromptBuilder.format_schema(context)
     conversation_str = _format_conversation(conversation)
@@ -259,6 +363,79 @@ def generateQuery(
     if query_type == "pandas":
         return validate_pandas(raw)
     return validate_sql(raw)
+
+
+def generateQueryStream(
+    userQuery: str,
+    LLMservice: str,
+    query_type: str = "sql",
+    conversation: list = None,
+    model: str = None,
+    instance_name: str = "default",
+):
+    """
+    Generator version of generateQuery.
+
+    Yields a sequence of dicts:
+      {"event": "token", "data": "<chunk>"}  — raw LLM token strings
+      {"event": "done",  "type": "sql"|"code"|"clarify", "content": "<full text>"}
+
+    The "done" event carries the fully-accumulated and validated response.
+    Consumers should display tokens incrementally and use "done" for final rendering.
+    """
+    if not isinstance(userQuery, str) or not userQuery.strip():
+        raise ValueError("userQuery must be a non-empty string.")
+    if len(userQuery) > _MAX_QUERY_LENGTH:
+        raise ValueError(
+            f"userQuery exceeds maximum length of {_MAX_QUERY_LENGTH} characters "
+            f"(got {len(userQuery)})."
+        )
+    if not isinstance(LLMservice, str) or LLMservice.lower() not in _VALID_PROVIDERS:
+        raise ValueError(
+            f"LLMservice must be one of {sorted(_VALID_PROVIDERS)}, got {LLMservice!r}."
+        )
+    if query_type not in _VALID_QUERY_TYPES:
+        raise ValueError(
+            f"query_type must be one of {sorted(_VALID_QUERY_TYPES)}, got {query_type!r}."
+        )
+
+    rag_query = userQuery
+    if conversation:
+        user_texts = [m["content"] for m in conversation if m.get("role") == "user"]
+        if user_texts:
+            rag_query = " ".join(user_texts[-3:])
+
+    context = _adaptive_retrieval(rag_query, LLMservice, model=model, instance_name=instance_name)
+
+    no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
+    if no_tables:
+        logger.error("R1: all retrieval rounds exhausted with no tables found for query %r — schema section will be empty", rag_query)
+
+    schema_str = PromptBuilder.format_schema(context)
+    conversation_str = _format_conversation(conversation)
+
+    prompt = PromptBuilder(_PROMPT_MAP[query_type]).build({
+        'CONVERSATION': conversation_str,
+        'SCHEMA': schema_str,
+    })
+
+    LLMObj = CallLLMApi(LLMservice, model=model)
+
+    accumulated = []
+    for token in LLMObj.CallServiceStream(prompt):
+        accumulated.append(token)
+        yield {"event": "token", "data": token}
+
+    full_response = "".join(accumulated)
+
+    if query_type == "dataframe_api":
+        result = validate_pyspark(full_response)
+    elif query_type == "pandas":
+        result = validate_pandas(full_response)
+    else:
+        result = validate_sql(full_response)
+
+    yield {"event": "done", "type": result["type"], "content": result["content"]}
 
 
 def _preload_schemas_bulk(instance_name: str = "default") -> dict:

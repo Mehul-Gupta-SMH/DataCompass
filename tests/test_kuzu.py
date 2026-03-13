@@ -70,6 +70,16 @@ def test_getObj_attempts_pickle_migration(tmp_path, monkeypatch):
     pickle_path = _prepare_temp_relations(monkeypatch, tmp_path)
     pickle_path.write_bytes(b"")  # existence triggers migration
 
+    # Bypass lru_cache on _kuzu_base_dir so this test's tmp_path is used
+    # regardless of what earlier tests may have cached.
+    kuzu_base = str(tmp_path / "relationsdb" / "kuzudb")
+    monkeypatch.setattr(kuzuDB, "_kuzu_base_dir", lambda: kuzu_base)
+
+    # Clear any module-level pool/schema state for this instance name so the
+    # DB is treated as fresh (is_fresh=True) and migration logic is triggered.
+    kuzuDB._DB_POOL.pop("legacy-instance", None)
+    kuzuDB._SCHEMA_READY.discard("legacy-instance")
+
     captured = {"called": False}
 
     def fake_load(_fh):

@@ -69,3 +69,12 @@ Guidelines and context for AI-assisted development on this project.
 | 2026-03-07 | `backend/app.py` | Pass `options` through in clarify response |
 | 2026-03-07 | `frontend/…/ChatInterface.jsx` | Retry strips assistant clarify history; `handleOptionSelect` for pill button clicks |
 | 2026-03-07 | `frontend/…/ChatMessage.jsx` | Clarify bubble renders clickable option pill buttons |
+| 2026-03-13 | `APIManager/AllAPICaller.py` | P1: Added `CallServiceStream()` generator — SSE token streaming for OpenAI/Codex/GROQ/Anthropic/Google; CLI providers fall back to batch |
+| 2026-03-13 | `main.py` | P1: Added `generateQueryStream()` generator — yields `{event:token}` chunks + final `{event:done}` with validated result |
+| 2026-03-13 | `backend/app.py` | P1: New `POST /api/chat/stream` SSE endpoint — Phase 1 (gather) runs sync, Phase 2 streams tokens; clarify returns single done event |
+| 2026-03-13 | `frontend/…/ChatInterface.jsx` | P1: `_callApiStream()` — fetch ReadableStream SSE consumer; streaming bubble updated token-by-token, finalised on done event |
+| 2026-03-13 | `frontend/…/ChatMessage.jsx` | P1: New `streaming` bubble type — dark code block with `●●●` placeholder while tokens arrive |
+| 2026-03-13 | `main.py` | R1: `_adaptive_retrieval()` + `_is_retrieval_confident()` — LLM rewrites ChromaDB search query when retrieval is weak; up to 3 rounds, stagnation/empty/failure early exits; replaces 2-line fallback in `generateQuery` and `generateQueryStream` |
+| 2026-03-13 | `Utilities/retrieval_config.YAML` | R1: Added `re_retrieval` config section: `max_rounds`, `min_direct_tables`, `rewrite_provider` |
+| 2026-03-13 | `tests/test_adaptive_retrieval.py` | R1: 9 new tests covering confident-first-round, rewrite-improves, stagnation, empty-schema, rewriter-exception |
+| 2026-03-13 | `tests/test_kuzu.py` | Fix: test isolation — patch `_kuzu_base_dir` directly and clear `_DB_POOL`/`_SCHEMA_READY` in migration test to prevent lru_cache poisoning across test runs |
