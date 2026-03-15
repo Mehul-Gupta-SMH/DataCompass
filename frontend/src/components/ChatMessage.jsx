@@ -79,6 +79,7 @@ function RunQueryPanel({ content, queryType, onOutcome }) {
       if (!res.ok) {
         setOutcome('failure')
         setErrorMsg(data.detail ?? 'Execution failed.')
+        onOutcome?.('failure')
         return
       }
       if (data.rows?.length > 0) {

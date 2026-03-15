@@ -85,13 +85,20 @@ function SessionPane({ sessions, currentId, onSelect, onNew, onDelete }) {
                   {s.title}
                 </div>
                 {s.lastOutcome && (
-                  <span title={s.lastOutcome} style={{
-                    flexShrink: 0,
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: s.lastOutcome === 'success' ? '#16a34a'
-                               : s.lastOutcome === 'empty'   ? '#ca8a04'
-                               : '#dc2626',
-                  }} />
+                  <span
+                    title={s.lastOutcome === 'success' ? 'Query ran successfully' : s.lastOutcome === 'empty' ? 'Query returned no rows' : 'Query failed'}
+                    style={{
+                      flexShrink: 0,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: s.lastOutcome === 'success' ? '#16a34a'
+                                : s.lastOutcome === 'empty'   ? '#ca8a04'
+                                : '#dc2626',
+                      boxShadow: `0 0 0 2px ${
+                        s.lastOutcome === 'success' ? '#bbf7d0'
+                        : s.lastOutcome === 'empty' ? '#fef08a'
+                        : '#fecaca'}`,
+                    }}
+                  />
                 )}
               </div>
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
@@ -517,17 +524,20 @@ export default function ChatInterface({ providers }) {
           {messages.map((msg) => (
             <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect}
               onOutcome={(outcome) => {
-                setSessions((prev) => prev.map((s) =>
-                  s.id === sessionIdRef.current ? { ...s, lastOutcome: outcome } : s
-                ))
-                apiFetch('/api/sessions', {
-                  method: 'POST',
-                  body: JSON.stringify(
-                    sessions.find((s) => s.id === sessionIdRef.current)
-                      ? { ...sessions.find((s) => s.id === sessionIdRef.current), lastOutcome: outcome }
-                      : {}
-                  ),
-                }).catch(() => {})
+                setSessions((prev) => {
+                  const next = prev.map((s) =>
+                    s.id === sessionIdRef.current ? { ...s, lastOutcome: outcome } : s
+                  )
+                  // persist using the freshly-updated session (avoids stale closure)
+                  const updated = next.find((s) => s.id === sessionIdRef.current)
+                  if (updated) {
+                    apiFetch('/api/sessions', {
+                      method: 'POST',
+                      body: JSON.stringify(updated),
+                    }).catch(() => {})
+                  }
+                  return next
+                })
               }}
             />
           ))}
