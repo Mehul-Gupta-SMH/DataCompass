@@ -57,7 +57,7 @@ function OutcomeBadge({ outcome, rowCount, errorMsg }) {
   )
 }
 
-function RunQueryPanel({ content, queryType }) {
+function RunQueryPanel({ content, queryType, onOutcome }) {
   const [open, setOpen] = useState(false)
   const [connStr, setConnStr] = useState('')
   const [loading, setLoading] = useState(false)
@@ -84,13 +84,16 @@ function RunQueryPanel({ content, queryType }) {
       if (data.rows?.length > 0) {
         setOutcome('success')
         setResult(data)
+        onOutcome?.('success', data.rows.length)
       } else {
         setOutcome('empty')
         setResult(data)
+        onOutcome?.('empty', 0)
       }
     } catch {
       setOutcome('failure')
       setErrorMsg('Network error.')
+      onOutcome?.('failure', 0)
     } finally {
       setLoading(false)
     }
@@ -147,7 +150,7 @@ function RunQueryPanel({ content, queryType }) {
 // ---------------------------------------------------------------------------
 // Individual message bubble
 // ---------------------------------------------------------------------------
-export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
+export default function ChatMessage({ msg, onRetry, onOptionSelect, onOutcome }) {
   const [copied, setCopied] = useState(false)
 
   const isUser = msg.role === 'user'
@@ -377,7 +380,7 @@ export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
         )}
 
         {/* Run query panel */}
-        {canRun && <RunQueryPanel content={msg.content} queryType={msg.queryType} />}
+        {canRun && <RunQueryPanel content={msg.content} queryType={msg.queryType} onOutcome={onOutcome} />}
       </div>
     </div>
   )

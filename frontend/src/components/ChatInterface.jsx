@@ -76,12 +76,23 @@ function SessionPane({ sessions, currentId, onSelect, onNew, onDelete }) {
               onClick={() => onSelect(s)}
               style={{ padding: '7px 28px 7px 10px' }}
             >
-              <div style={{
-                fontSize: 13, fontWeight: s.id === currentId ? 600 : 400,
-                color: '#1f2937',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>
-                {s.title}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: s.id === currentId ? 600 : 400,
+                  color: '#1f2937', flex: 1,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {s.title}
+                </div>
+                {s.lastOutcome && (
+                  <span title={s.lastOutcome} style={{
+                    flexShrink: 0,
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: s.lastOutcome === 'success' ? '#16a34a'
+                               : s.lastOutcome === 'empty'   ? '#ca8a04'
+                               : '#dc2626',
+                  }} />
+                )}
               </div>
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
                 {formatTimestamp(s.timestamp)} · {PROVIDER_LABELS[s.provider] ?? s.provider}
@@ -504,7 +515,21 @@ export default function ChatInterface({ providers }) {
           )}
 
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect} />
+            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect}
+              onOutcome={(outcome) => {
+                setSessions((prev) => prev.map((s) =>
+                  s.id === sessionIdRef.current ? { ...s, lastOutcome: outcome } : s
+                ))
+                apiFetch('/api/sessions', {
+                  method: 'POST',
+                  body: JSON.stringify(
+                    sessions.find((s) => s.id === sessionIdRef.current)
+                      ? { ...sessions.find((s) => s.id === sessionIdRef.current), lastOutcome: outcome }
+                      : {}
+                  ),
+                }).catch(() => {})
+              }}
+            />
           ))}
 
           {loading && (
