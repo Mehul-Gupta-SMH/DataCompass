@@ -6,6 +6,43 @@ Ask *"Which customers placed the most orders last quarter?"* and get a ready-to-
 
 ---
 
+## Demo
+
+### Natural language → SQL (with clarifying questions)
+
+<video src="demo/pages/01_query_chat.webm" controls width="100%"></video>
+
+> Ask a complex multi-table question. Poly-QL asks one clarifying question, then streams the full SQL back token by token.
+
+---
+
+### Schema / ERD explorer
+
+<!-- PLACEHOLDER: run `python demo/record_pages.py --only 02`, upload demo/pages/02_schema_erd.webm to a GitHub issue comment to get a CDN URL, then replace this comment with:  <video src="https://github.com/user-attachments/assets/YOUR_ID" controls width="100%"></video> -->
+*Demo coming soon — run `python demo/record_pages.py --only 02` to generate.*
+
+> Interactive entity-relationship diagram of your entire schema. Click any table to open its data dictionary.
+
+---
+
+### Join Path explorer
+
+<!-- PLACEHOLDER: run `python demo/record_pages.py --only 03` -->
+*Demo coming soon — run `python demo/record_pages.py --only 03` to generate.*
+
+> Select any two tables and instantly visualise the shortest JOIN route with join keys and cardinality annotations.
+
+---
+
+### Ingest Table — auto-document a pipeline
+
+<!-- PLACEHOLDER: run `python demo/record_pages.py --only 04` -->
+*Demo coming soon — run `python demo/record_pages.py --only 04` to generate.*
+
+> Paste an `INSERT INTO … SELECT` and the LLM auto-generates a full data dictionary for the output table.
+
+---
+
 ## Features
 
 | | |
@@ -30,8 +67,8 @@ Ask *"Which customers placed the most orders last quarter?"* and get a ready-to-
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/Mehul-Gupta-SMH/SQLCoder.git
-cd SQLCoder
+git clone https://github.com/Mehul-Gupta-SMH/PolyQL.git
+cd PolyQL
 
 python -m venv venv
 venv\Scripts\activate        # Windows

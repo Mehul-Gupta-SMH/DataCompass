@@ -17,13 +17,16 @@ const tabStyle = (active) => ({
   fontSize: 14,
 })
 
-function CompassIcon() {
+function PolyQLIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="#2563eb" strokeWidth="1.4">
-      <circle cx="12" cy="12" r="10" />
-      <polygon points="12,5 14.5,12 12,19 9.5,12" fill="#2563eb" stroke="none" opacity="0.25" />
-      <polygon points="5,12 12,9.5 19,12 12,14.5" fill="#2563eb" stroke="none" />
-      <circle cx="12" cy="12" r="1.2" fill="#fff" stroke="none" />
+    <svg viewBox="0 0 32 32" width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="7" fill="#2563eb" />
+      <ellipse cx="16" cy="10.5" rx="7.5" ry="2.8" fill="white" opacity="0.95" />
+      <rect x="8.5" y="10.5" width="15" height="10" fill="white" opacity="0.15" />
+      <line x1="8.5" y1="10.5" x2="8.5" y2="20.5" stroke="white" strokeWidth="1.6" opacity="0.95" />
+      <line x1="23.5" y1="10.5" x2="23.5" y2="20.5" stroke="white" strokeWidth="1.6" opacity="0.95" />
+      <ellipse cx="16" cy="20.5" rx="7.5" ry="2.8" fill="white" opacity="0.95" />
+      <polyline points="14.5,13.5 17.5,13.5 15,17 18,17" fill="none" stroke="#2563eb" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
 }
@@ -62,11 +65,16 @@ function AppContent() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         borderBottom: '1px solid #e5e7eb', paddingBottom: 0, marginBottom: 0, paddingTop: 12,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 10 }}>
-          <CompassIcon />
-          <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px' }}>
-            Poly-QL
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10 }}>
+          <PolyQLIcon />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, color: '#1e1e2e', letterSpacing: '-0.3px', lineHeight: 1.1 }}>
+              Poly-QL
+            </span>
+            <span style={{ fontSize: 11, color: '#9ca3af', letterSpacing: '0.2px', lineHeight: 1 }}>
+              natural language → SQL
+            </span>
+          </div>
         </div>
 
         <nav style={{ display: 'flex', gap: 2 }}>
