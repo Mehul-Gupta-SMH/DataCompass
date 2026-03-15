@@ -52,6 +52,11 @@ class ExecuteRequest(BaseModel):
     generated_query: str
     query_type: Literal["sql", "spark_sql"]
     connection_string: str
+    # Optional context fields for QT1 outcome recording
+    nl_query:   Optional[str] = None
+    provider:   Optional[str] = None
+    session_id: Optional[str] = None
+    query_id:   Optional[str] = None
 
 
 class ChatMessageItem(BaseModel):
@@ -380,13 +385,35 @@ def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
 
 @app.post("/api/execute")
 def post_execute(body: ExecuteRequest, user: dict = Depends(get_current_user)):
+    import time
     from backend.executor import execute_query
+    from validation.outcome_store import record as record_outcome
+
+    _ctx = dict(
+        generated_sql=body.generated_query,
+        query_type=body.query_type,
+        nl_query=body.nl_query or "",
+        provider=body.provider or "",
+        session_id=body.session_id or "",
+        query_id=body.query_id or "",
+    )
+
+    t0 = time.monotonic()
     try:
         columns, rows = execute_query(body.generated_query, body.query_type, body.connection_string)
+        latency_ms = (time.monotonic() - t0) * 1000
+        outcome = "success" if rows else "empty"
+        record_outcome(outcome=outcome, latency_ms=latency_ms, row_count=len(rows), **_ctx)
         return {"columns": columns, "rows": rows}
     except ValueError as exc:
+        latency_ms = (time.monotonic() - t0) * 1000
+        record_outcome(outcome="failure", latency_ms=latency_ms,
+                       error_type="ValueError", error_msg=str(exc), **_ctx)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        latency_ms = (time.monotonic() - t0) * 1000
+        record_outcome(outcome="failure", latency_ms=latency_ms,
+                       error_type=type(exc).__name__, error_msg=str(exc), **_ctx)
         raise HTTPException(status_code=500, detail=f"Execution error: {str(exc)}")
 
 

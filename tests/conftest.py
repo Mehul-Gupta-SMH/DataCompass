@@ -20,6 +20,7 @@ _HEAVY_MODULES = [
     "pyvis",
     "pyvis.network",
     "iteration_utilities",
+    "sqlalchemy",
 ]
 
 for _mod in _HEAVY_MODULES:
