@@ -15,7 +15,7 @@ node_modules/
 frontend/dist/
 /MetadataManager/MetadataStore/MetadataStorage
 
-# Demo recordings
+# Demo recordings — temp dirs and root-level webm are ignored;
+# demo/pages/ clips are committed so README embeds work on GitHub
 demo/*.webm
-demo/pages/
 demo/_tmp_*/
