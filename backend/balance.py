@@ -17,7 +17,6 @@ For Anthropic / Google / GROQ we probe with a lightweight auth check
 
 import sys
 import os
-import json
 import logging
 import subprocess
 import yaml

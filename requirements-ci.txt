@@ -3,6 +3,7 @@
 # are pre-mocked in tests/conftest.py and do not need to be installed here.
 
 pytest>=7.0
+ruff>=0.4
 PyYAML>=6.0
 rank-bm25>=0.2
 networkx>=3.0

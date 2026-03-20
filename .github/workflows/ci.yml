@@ -23,5 +23,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-ci.txt
 
+      - name: Lint (ruff)
+        run: python -m ruff check backend/ tests/ validation/
+
       - name: Run tests
         run: python -m pytest tests/ -v

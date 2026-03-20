@@ -31,8 +31,8 @@ for _mod in _HEAVY_MODULES:
 # Override the auth dependency so protected endpoints work in tests without
 # a real JWT token.
 # ---------------------------------------------------------------------------
-from backend.app import app
-from backend.auth import get_current_user
+from backend.app import app  # noqa: E402
+from backend.auth import get_current_user  # noqa: E402
 
 _FAKE_USER = {"sub": "testuser", "uid": 1}
 

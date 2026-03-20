@@ -11,9 +11,8 @@ Covers:
 
 import json
 import sqlite3
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -146,7 +145,6 @@ _EXECUTE_BODY = {
 }
 
 
-import backend.executor  # ensure module is in sys.modules so patch() can resolve it
 
 
 class TestExecuteEndpointRecordsOutcome:
