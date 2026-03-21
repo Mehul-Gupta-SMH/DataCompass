@@ -86,6 +86,7 @@ Guidelines and context for AI-assisted development on this project.
 | 2026-03-13 | `Utilities/retrieval_config.YAML` | R1: Added `re_retrieval` config section: `max_rounds`, `min_direct_tables`, `rewrite_provider` |
 | 2026-03-13 | `tests/test_adaptive_retrieval.py` | R1: 9 new tests covering confident-first-round, rewrite-improves, stagnation, empty-schema, rewriter-exception |
 | 2026-03-13 | `tests/test_kuzu.py` | Fix: test isolation — patch `_kuzu_base_dir` directly and clear `_DB_POOL`/`_SCHEMA_READY` in migration test to prevent lru_cache poisoning across test runs |
+| 2026-03-21 | `TASK.md`, `docs/` | Collated R1_PLAN.md + joblog.md into TASK.md (R1 design notes + session history); deleted source files; created docs/arch_system.md, arch_query_flow.md, arch_ingest_flow.md, arch_storage.md with Mermaid diagrams |
 | 2026-03-16 | `validation/outcome_store.py`, `backend/app.py`, `tests/test_outcome_store.py` | QT1: outcome recorder — appends `{session_id, query_id, nl_query, generated_sql, provider, outcome, error_type, row_count, latency_ms}` to `outcomes.jsonl` + SQLite after every `/api/execute` |
 | 2026-03-16 | `frontend/src/components/ChatMessage.jsx`, `ChatInterface.jsx` | QT2: outcome badge (✓/○/✕) inline with Execute button; session-pane dot (green/amber/red) next to session title |
 | 2026-03-20 | `backend/logging_config.py`, `backend/metrics.py`, `backend/app.py` | B3: JSON structured logging + Prometheus metrics — `GET /metrics`, request middleware, LLM call counters |
