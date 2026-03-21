@@ -349,6 +349,95 @@ Current state: one workflow (`ci.yml`) that only runs `pytest` on push to `maste
 
 ---
 
+### Business Semantic Layer
+
+A glossary-driven enrichment layer that maps business terminology and KPI definitions to their underlying tables, columns, and formulas. When a user asks *"What is our AUM this quarter?"* or *"Show delivery delay by region"*, the system resolves the business term to its canonical definition, math, and table dependencies **before** RAG retrieval runs — so the query generator gets the formula, not just the word.
+
+**Problem this solves:** ChromaDB embeds table descriptions. But business terms like "AUM", "churn rate", or "delivery delay" are not in table descriptions — they live in analysts' heads or wiki pages. Today the LLM guesses the formula; with this layer it retrieves it.
+
+**Architecture:**
+
+```
+User query: "Show AUM by fund manager last quarter"
+        │
+        ▼ SL1 — Term Resolver
+  Semantic search against embedded business glossary
+  → matches: AUM = "Assets Under Management; SUM(market_value) WHERE account_type='investment'"
+  → table_deps: [positions, accounts, fund_managers]
+        │
+        ▼ Injected into gatherRequirements context:
+  ## Business Definitions
+  AUM: Assets Under Management
+  Formula: SUM(p.market_value) FROM positions p JOIN accounts a ON ...
+  Tables: positions, accounts, fund_managers
+        │
+        ▼ generateQuery now has the formula + the right tables in SCHEMA
+  → Generates correct SQL first time, no hallucinated formula
+```
+
+**Storage design** — new SQLite table `business_terms` (in `tableMetadata.db`):
+
+```sql
+CREATE TABLE business_terms (
+    term_id       TEXT PRIMARY KEY,   -- UUID
+    term_name     TEXT NOT NULL,      -- "AUM"
+    full_name     TEXT,               -- "Assets Under Management"
+    definition    TEXT,               -- plain-English description
+    formula       TEXT,               -- SQL expression or pseudocode
+    formula_type  TEXT,               -- "sql_expression" | "pseudocode" | "description"
+    table_deps    TEXT,               -- JSON array of table names
+    column_deps   TEXT,               -- JSON array of "table.column" strings
+    synonyms      TEXT,               -- JSON array: ["assets under mgmt", "total aum"]
+    example_value TEXT,               -- "$4.2B as of Q4 2024"
+    domain        TEXT,               -- "finance" | "logistics" | "marketing" | ...
+    instance_name TEXT DEFAULT '',    -- scoped to DB instance
+    created_at    TEXT,
+    updated_at    TEXT
+);
+```
+
+**ChromaDB collection** — `business_glossary` — embed `term_name + full_name + definition + synonyms` so user queries match terms even when phrased differently (e.g. "managed assets" → "AUM").
+
+**Retrieval integration** — `_get_business_context(query, instance_name)` returns matched terms + formulas. Called in both `gatherRequirements` (injected into `SCHEMA` block alongside table schemas) and `generateQuery` (prepended as `## Business Definitions` section).
+
+| ID | Status | Task | Complexity | Files |
+|----|--------|------|------------|-------|
+| SL0 | [ ] | **Business glossary storage** — Add `business_terms` SQLite table to `tableMetadata.db`; migration helper in `Utilities/base_utils.py`; CRUD wrapper `MetadataManager/GlossaryStore.py` with `add_term`, `get_term`, `delete_term`, `list_terms`, `search_by_name` | Low | `MetadataManager/GlossaryStore.py`, `Utilities/base_utils.py` |
+| SL1 | [ ] | **Glossary embedding + semantic search** — Embed each term's `term_name + full_name + definition + synonyms` into a new ChromaDB collection `business_glossary`; `_get_business_context(query, instance_name)` does cosine similarity search and returns top-k matched terms with their formulas and `table_deps`; threshold-gated to avoid injecting noise | Medium | `MetadataManager/GlossaryStore.py`, `MetadataManager/MetadataStore/vdb/Chroma.py` |
+| SL2 | [ ] | **Retrieval integration** — Call `_get_business_context()` in `gatherRequirements` (alongside ChromaDB table search) and in `generateQuery` (prepend `## Business Definitions` block to schema section); extend `PromptBuilder.format_schema()` to accept and render a `glossary_hits` list; the formula string is injected verbatim so the LLM uses it as the canonical calculation | Medium | `main.py`, `APIManager/PromptBuilder.py` |
+| SL3 | [ ] | **Import API** — `POST /api/glossary/terms` (single or bulk JSON), `GET /api/glossary/terms?instance_name=&domain=`, `GET /api/glossary/terms/{term_id}`, `PUT /api/glossary/terms/{term_id}`, `DELETE /api/glossary/terms/{term_id}`, `GET /api/glossary/search?q=` (semantic preview) | Low | `backend/app.py`, `backend/glossary.py` |
+| SL4 | [ ] | **Glossary UI tab** — New "Glossary" tab: searchable table of all terms with inline edit; "Add Term" modal with fields for name, full name, definition, formula, domain, table dependencies (multi-select from known schema), synonyms; bulk CSV/JSON import | Medium | `frontend/src/components/BusinessGlossary.jsx`, `frontend/src/App.jsx` |
+| SL5 | [ ] | **Term–table linking in ERD** — Terms with `table_deps` appear as annotation nodes on the Schema/ERD tab; clicking a term node shows its definition and formula; tables linked to the term are highlighted | Medium | `frontend/src/components/SchemaERD.jsx`, `frontend/src/components/BusinessGlossary.jsx` |
+| SL6 | [ ] | **Tests** — Unit tests for `GlossaryStore` CRUD; mock ChromaDB tests for `_get_business_context`; integration test verifying a matched term's `table_deps` are injected into the gather context | Low | `tests/test_glossary_store.py`, `tests/test_glossary_retrieval.py` |
+
+**Term JSON schema** (for `POST /api/glossary/terms` and bulk import):
+```json
+{
+  "term_name": "AUM",
+  "full_name": "Assets Under Management",
+  "definition": "Total market value of all investment assets managed on behalf of clients.",
+  "formula": "SUM(p.market_value) FROM positions p JOIN accounts a ON p.account_id = a.account_id WHERE a.account_type = 'investment'",
+  "formula_type": "sql_expression",
+  "table_deps": ["positions", "accounts"],
+  "column_deps": ["positions.market_value", "accounts.account_type"],
+  "synonyms": ["assets under management", "total aum", "managed assets"],
+  "example_value": "$4.2B as of Q4 2024",
+  "domain": "finance",
+  "instance_name": "prod_snowflake"
+}
+```
+
+**Design decisions:**
+- **Separate ChromaDB collection** (`business_glossary`) not mixed with table embeddings — keeps retrieval scores comparable within each collection; allows independent similarity thresholds
+- **`table_deps` as a pre-hint, not a replacement** — glossary resolves which tables *should* be involved; RAG retrieval still runs and may add more; both merge before entering the prompt
+- **Formula injected verbatim** into `## Business Definitions` — LLM instructed to treat it as canonical rather than deriving its own
+- **Domain scoping** — `domain` field prevents a finance glossary polluting a logistics instance even within the same `instance_name`
+- **Synonym matching** — synonyms concatenated into the ChromaDB document so "managed assets" and "AUM" both resolve to the same entry
+
+**Recommended order:** SL0 → SL1 → SL2 (core value unlocked here) → SL3 → SL6 → SL4 → SL5
+
+---
+
 ### Developer Experience
 
 | ID | Status | Idea | Complexity |
@@ -642,3 +731,98 @@ Current system stores only bare table names (e.g. `orders`). Users working with 
 - Confirmed P1 streaming: `CallServiceStream` in `AllAPICaller.py`, `generateQueryStream` in `main.py`, `/api/chat/stream` SSE endpoint, `_callApiStream` + streaming bubble in frontend.
 - Confirmed R1 adaptive retrieval: `_adaptive_retrieval()` + `_is_retrieval_confident()` in `main.py`, config in `retrieval_config.YAML`, 9 tests all pass.
 - Both P1 and R1 marked `[x]` in backlog. Commits made.
+
+---
+
+## R1 — Adaptive Re-retrieval: Design Notes
+
+*Implemented: 2026-03-13. Design authored by OpenAI Codex (o4-mini). See commit history for implementation.*
+
+### Architectural placement decision
+
+`_adaptive_retrieval()` lives in **`main.py`** as a private helper — not in `SQLBuilderComponents.py` and not in a separate file.
+
+| Option | Decision |
+|--------|----------|
+| `main.py` helper | ✅ Chosen — same module as call site; direct access to `_get_table_directory()` and `CallLLMApi`; keeps SQLBuilderComponents infrastructure-only |
+| Inline in `generateQuery` | ❌ Already complex function; harder to test in isolation |
+| New `retrieval_agent.py` | ❌ Over-engineering for one function |
+| Inside `SQLBuilderComponents.py` | ❌ Mixes concerns — that file is intentionally infrastructure-only (ChromaDB + NetworkX + SQLite) |
+
+### Confidence check
+
+Confidence = `len(direct_tables) >= min_direct_tables`. Table count is the right signal because:
+- Reranker filtering already ran inside `SQLBuilderSupport.__filterRelevantResults__` before `_adaptive_retrieval` sees the context
+- Surviving direct table count is what `generateQuery` actually needs; raw ChromaDB cosine distance is a coarser pre-filter
+- Default `min_direct_tables: 2` catches the common fact-table + dimension pattern while allowing single-table queries to pass on first round
+
+### R1 must NOT run inside `gatherRequirements`
+
+`gatherRequirements` already has a native schema-discovery mechanism: the `get_schema` tool loop (up to `max_tool_calls`). Adding R1 there would:
+1. Double LLM call count during the already-costly gather phase
+2. Be redundant — the gather LLM can directly call `get_schema("X")` for any table it needs
+3. Increase clarification latency significantly
+
+R1 addresses a specific failure mode: **`generateQuery` receiving an empty schema** — which is a `generateQuery` boundary problem, not a `gatherRequirements` problem.
+
+### Edge cases handled
+
+| Case | Handling |
+|------|----------|
+| Empty schema (`_get_table_directory` returns `"(no tables…)"`) | Skip loop entirely; single `getRelevantContext` call |
+| Stagnation (same tables found on consecutive rounds) | Stop early — compare `set(direct_tables)` round N vs N-1 |
+| Empty rewrite returned by LLM | `break` immediately |
+| Identical rewrite to previous query | `break` immediately |
+| LLM call fails on rewrite | Catch exception, return best context seen so far |
+| Max rounds exhausted | Return accumulated best-context; `generateQuery` handles `no_tables` downstream |
+
+### Config (`Utilities/retrieval_config.YAML`)
+
+```yaml
+re_retrieval:
+  max_rounds: 3          # total attempts (initial + up to 2 rewrites)
+  min_direct_tables: 2   # stop early when this many direct tables found
+  rewrite_provider: null # null = same provider as generateQuery caller
+```
+
+---
+
+## Development Session History
+
+*Pre-history log from `joblog.md` (sessions 1–6, 2026-02-18 to 2026-02-19). These predate the Change Log section above.*
+
+### Session 1 — 2026-02-18 (Initial architecture review)
+- Full codebase exploration and architecture review
+- Identified security issues: `eval()` usage (S1, S2), secrets in config (S3)
+- Identified architectural weaknesses across retrieval, prompt building, graph layer, and utilities
+- Created task list (15 tasks across 5 tiers)
+- Notable: `__filterAdditionalColumns__()` was a confirmed no-op placeholder; scoring pipeline in `RAGPipeline.py` ran but output was discarded
+
+### Session 2 — 2026-02-18 (Security fixes)
+- **S3**: Verified `model_access_config.YAML` was never committed — keys safe
+- **S1**: Replaced `eval()` with `json.loads()` in `AllAPICaller.py`; also fixed trailing commas in `ANTHROPIC.json`, `GROQ.json`, `GOOGLE.json` (were invalid JSON — the original reason `eval` was used)
+- **S2**: Replaced `eval()` with `ast.literal_eval()` in `base_utils.py` cache read; narrowed bare `except` to `(ValueError, SyntaxError)`
+
+### Session 3 — 2026-02-18 (Code quality)
+- **Q1**: Removed hardcoded absolute paths in `base_utils.py` — added `PROJECT_ROOT` via `pathlib.Path(__file__)`; `config.yaml` updated to use relative filenames
+- **Q2**: Fixed double `__set_apidict__()` call — `__init__` was overwriting the side-effect result; `CallService` no longer re-calls it
+- **Q3**: Fixed `.gitignore` — `/__pycache__` → `**/__pycache__` for nested cache dirs
+- **Q4**: Replaced all `print()` with `logging.getLogger(__name__)` across `SQLBuilderComponents.py`, `Chroma.py`, `importData.py`; also fixed bare `except` in `importData.py` with exception chaining
+
+### Session 4 — 2026-02-18 (RAG pipeline)
+- **C1**: Structured prompt template — `PromptBuilder.format_schema()` converts context dict to markdown DDL; `taskGenerateSQL.txt` prompt template created; `main.py` no longer uses raw f-string prompt
+- **C2**: Wired reranker scores into filtering — `reranker_threshold: 0.0` in `retrieval_config.YAML`; `__filterRelevantResults__` now filters + sorts by score
+- **C3**: Implemented `__filterAdditionalColumns__()` — BM25Okapi scores each column against user query; PRIMARY/FOREIGN KEY columns always retained; falls back to all columns if none pass threshold
+
+### Session 5 — 2026-02-19 (Graph + LLM resilience)
+- **M1**: Switched `nx.Graph` → `nx.DiGraph`; `addRelations()` adds edges in both directions (bidirectional JOIN semantics; DiGraph requires explicit reverse edges for `shortest_path`)
+- **M2**: Removed redundant bare `except` in `importData.py` that was discarding exception chain
+- **M3**: Moved module-level `get_config_val` calls in `RAGPipeline.py` into class `__init__`; removed unused ML library imports (`Detoxify`, `AutoTokenizer`, etc.)
+- **M4**: Added exponential backoff retry to `CallLLMApi.CallService()` — retries on `{429, 500, 502, 503, 504}`; delay 1s → 2s → 4s; non-retryable codes fail immediately
+
+### Session 6 — 2026-02-19 (Interfaces + test suite)
+- **F4**: Fixed `cachefunc.close()` — was referencing `self.connection` (doesn't exist); corrected to `self.DBObj.connection.close()`
+- **F2**: Created `Utilities/store_interface.py` with `BaseMetadataStore` ABC; `accessDB` now inherits from it
+- **F1**: Created `MetadataManager/MetadataStore/vdb/base.py` with `BaseVectorStore` ABC; `ChromaVectorStore` class implements it; `RAGPipeline.py` uses interface methods throughout
+- **F3**: Created initial test suite — `test_prompt_builder.py` (12 tests), `test_filters.py` (10 tests), `test_base_utils.py` (8 tests)
+- All 15 original tasks across tiers 1–5 complete at end of this session
