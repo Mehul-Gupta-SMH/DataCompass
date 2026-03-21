@@ -1,6 +1,6 @@
 """Tests for R1: _adaptive_retrieval adaptive re-retrieval loop."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ class TestEmptySchemaSkipsLoop:
              patch("Utilities.base_utils.get_config_val", side_effect=_cfg):
 
             from main import _adaptive_retrieval
-            result = _adaptive_retrieval("show me sales data", LLMservice="open_ai")
+            _adaptive_retrieval("show me sales data", LLMservice="open_ai")
 
         assert mock_ctx.call_count == 1
         mock_llm_cls.assert_not_called()
@@ -150,7 +150,7 @@ class TestEmptySchemaSkipsLoop:
         """'(table directory unavailable)' should also skip the rewrite loop."""
         ctx = _ctx_with(0)
 
-        with patch("main.getRelevantContext", return_value=ctx) as mock_ctx, \
+        with patch("main.getRelevantContext", return_value=ctx), \
              patch("main._get_table_directory", return_value="(table directory unavailable)"), \
              patch("main.CallLLMApi") as mock_llm_cls, \
              patch("Utilities.base_utils.get_config_val", side_effect=_cfg):

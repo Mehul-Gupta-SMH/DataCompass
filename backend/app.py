@@ -1,6 +1,8 @@
 import sys
 import os
 import re
+import time
+import logging
 from contextlib import asynccontextmanager
 from typing import Any, Literal, List, Optional
 import networkx as nx
@@ -10,20 +12,27 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import json as _json
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from main import generateQuery, generateQueryStream, gatherRequirements, SQLValidationError, _VALID_PROVIDERS
 from backend.auth import get_current_user
+from backend.logging_config import configure_logging
+from backend.metrics import metrics
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
     from backend.auth import init_db
     init_db()
+    logger.info("Poly-QL backend started", extra={"event": "startup"})
     yield
+    logger.info("Poly-QL backend shutting down", extra={"event": "shutdown"})
 
 
 app = FastAPI(title="SQLCoder API", lifespan=lifespan)
@@ -34,6 +43,26 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.middleware("http")
+async def _request_logger(request: Request, call_next):
+    """Log every request as a JSON line and record metrics counters."""
+    t0 = time.monotonic()
+    response = await call_next(request)
+    latency_ms = (time.monotonic() - t0) * 1000
+    metrics.record_request(request.method, request.url.path, response.status_code, latency_ms)
+    logger.info(
+        "http request",
+        extra={
+            "event": "http_request",
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "latency_ms": round(latency_ms, 2),
+        },
+    )
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -52,6 +81,11 @@ class ExecuteRequest(BaseModel):
     generated_query: str
     query_type: Literal["sql", "spark_sql"]
     connection_string: str
+    # Optional context fields for QT1 outcome recording
+    nl_query:   Optional[str] = None
+    provider:   Optional[str] = None
+    session_id: Optional[str] = None
+    query_id:   Optional[str] = None
 
 
 class ChatMessageItem(BaseModel):
@@ -210,6 +244,12 @@ def delete_session_endpoint(session_id: str, user: dict = Depends(get_current_us
 # Existing endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/metrics", response_class=PlainTextResponse, include_in_schema=False)
+def get_metrics():
+    """Prometheus-compatible metrics endpoint."""
+    return PlainTextResponse(metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
+
+
 @app.get("/api/providers")
 def get_providers():
     return {"providers": sorted(_VALID_PROVIDERS)}
@@ -259,9 +299,12 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
 
     try:
         gather = gatherRequirements(messages, body.provider, model=body.model, instance_name=body.instance_name)
+        metrics.record_llm_call(body.provider)
     except (ValueError, SQLValidationError) as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=500, detail=f"Requirement gathering failed: {exc}")
 
     if not gather.get("ready"):
@@ -276,9 +319,12 @@ def post_chat(body: ChatRequest, user: dict = Depends(get_current_user)):
 
     try:
         result = generateQuery(gather["summary"], body.provider, body.query_type, messages, model=body.model, instance_name=body.instance_name)
+        metrics.record_llm_call(body.provider)
     except (ValueError, SQLValidationError) as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=500, detail=f"Query generation failed: {exc}")
 
     return {
@@ -308,9 +354,12 @@ def post_chat_stream(body: ChatRequest, user: dict = Depends(get_current_user)):
 
     try:
         gather = gatherRequirements(messages, body.provider, model=body.model, instance_name=body.instance_name)
+        metrics.record_llm_call(body.provider)
     except (ValueError, SQLValidationError) as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        metrics.record_llm_call(body.provider, error=True)
         raise HTTPException(status_code=500, detail=f"Requirement gathering failed: {exc}")
 
     def _sse(payload: dict) -> str:
@@ -350,9 +399,12 @@ def post_chat_stream(body: ChatRequest, user: dict = Depends(get_current_user)):
                         "content": chunk["content"],
                         "query_type": body.query_type,
                     })
+            metrics.record_llm_call(body.provider)
         except (ValueError, SQLValidationError) as exc:
+            metrics.record_llm_call(body.provider, error=True)
             yield _sse({"event": "error", "detail": str(exc)})
         except Exception as exc:
+            metrics.record_llm_call(body.provider, error=True)
             yield _sse({"event": "error", "detail": f"Query generation failed: {exc}"})
 
     return StreamingResponse(
@@ -380,13 +432,35 @@ def post_query(body: QueryRequest, user: dict = Depends(get_current_user)):
 
 @app.post("/api/execute")
 def post_execute(body: ExecuteRequest, user: dict = Depends(get_current_user)):
+    import time
     from backend.executor import execute_query
+    from validation.outcome_store import record as record_outcome
+
+    _ctx = dict(
+        generated_sql=body.generated_query,
+        query_type=body.query_type,
+        nl_query=body.nl_query or "",
+        provider=body.provider or "",
+        session_id=body.session_id or "",
+        query_id=body.query_id or "",
+    )
+
+    t0 = time.monotonic()
     try:
         columns, rows = execute_query(body.generated_query, body.query_type, body.connection_string)
+        latency_ms = (time.monotonic() - t0) * 1000
+        outcome = "success" if rows else "empty"
+        record_outcome(outcome=outcome, latency_ms=latency_ms, row_count=len(rows), **_ctx)
         return {"columns": columns, "rows": rows}
     except ValueError as exc:
+        latency_ms = (time.monotonic() - t0) * 1000
+        record_outcome(outcome="failure", latency_ms=latency_ms,
+                       error_type="ValueError", error_msg=str(exc), **_ctx)
         raise HTTPException(status_code=422, detail=str(exc))
     except Exception as exc:
+        latency_ms = (time.monotonic() - t0) * 1000
+        record_outcome(outcome="failure", latency_ms=latency_ms,
+                       error_type=type(exc).__name__, error_msg=str(exc), **_ctx)
         raise HTTPException(status_code=500, detail=f"Execution error: {str(exc)}")
 
 

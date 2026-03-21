@@ -82,13 +82,14 @@ def parse_pipeline(sql_text: str) -> dict:
     sql = sql_text.strip()
 
     # --- Detect INSERT INTO target (cols) SELECT ... -------------------------
+    # Capture unquoted qualified names (db.schema.table) and quoted plain names.
     insert_m = re.search(
-        r'INSERT\s+(?:INTO\s+)?[`"\[]?(\w+)[`"\]]?\s*\(([^)]+)\)',
+        r'INSERT\s+(?:INTO\s+)?(?:`([^`]+)`|"([^"]+)"|\[([^\]]+)\]|([\w]+(?:\.[\w]+)*))\s*\(([^)]+)\)',
         sql, re.IGNORECASE,
     )
     # --- Detect CREATE TABLE target AS SELECT ... ----------------------------
     ctas_m = re.search(
-        r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?(\w+)[`"\]]?\s+AS\s+',
+        r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:`([^`]+)`|"([^"]+)"|\[([^\]]+)\]|([\w]+(?:\.[\w]+)*))\s+AS\s+',
         sql, re.IGNORECASE,
     )
 
@@ -98,12 +99,17 @@ def parse_pipeline(sql_text: str) -> dict:
             "Neither pattern was found."
         )
 
+    def _extract_name(m):
+        """Return the first non-None capture group (handles quoted + unquoted forms)."""
+        return next(g for g in m.groups() if g is not None)
+
     if insert_m:
-        target_table = insert_m.group(1)
-        explicit_cols = [c.strip() for c in insert_m.group(2).split(',')]
+        target_table = _extract_name(insert_m)
+        # columns list is the last group (group 5)
+        explicit_cols = [c.strip() for c in insert_m.group(5).split(',')]
         tail = sql[insert_m.end():]
     else:
-        target_table = ctas_m.group(1)
+        target_table = _extract_name(ctas_m)
         explicit_cols = None
         tail = sql[ctas_m.end():]
 
@@ -161,7 +167,7 @@ def parse_pipeline(sql_text: str) -> dict:
         'full', 'left', 'right', 'natural',
     }
     table_re = re.compile(
-        r'(?:FROM|JOIN)\s+(`[^`]+`|"[^"]+"|\[[^\]]+\]|(\w+))',
+        r'(?:FROM|JOIN)\s+(`[^`]+`|"[^"]+"|\[[^\]]+\]|([\w]+(?:\.[\w]+)*))',
         re.IGNORECASE,
     )
     source_tables, seen = [], set()

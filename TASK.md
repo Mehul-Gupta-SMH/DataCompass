@@ -209,6 +209,15 @@ Handoff: Claude marks task `[~]` and notes "ready for Codex" → Codex tests →
 | 2026-03-08 | `Claude/Playground/Dev` | `APIManager/AllAPICaller.py` (claude_code) | Fixed: Claude Code CLI was receiving the full task prompt via `-p` (user message), causing Claude to treat it as pasted content and respond conversationally. Now passes prompt via `--system-prompt` and sends a neutral activation trigger as `-p`. |
 | 2026-03-08 | `Claude/Playground/Dev` | Multiple | Added Pandas as a query type: new prompt `taskGeneratePandas.txt`, `validate_pandas()` in `main.py`, registered in `PromptBuilder`, `_VALID_QUERY_TYPES`, `_PROMPT_MAP`, `app.py` Literal, frontend `QUERY_TYPE_LABELS` + `ChatMessage` label/notice. |
 | 2026-03-13 | `Claude/Playground/Dev` | `main.py`, `Utilities/retrieval_config.YAML`, `tests/test_adaptive_retrieval.py` | R1: Adaptive re-retrieval agent. New `_adaptive_retrieval()` + `_is_retrieval_confident()` in `main.py`. Config-driven `max_rounds/min_direct_tables`. Replaces 2-line fallback in both `generateQuery` and `generateQueryStream`. 9 tests added, 117 total pass. → Codex: commit |
+| 2026-03-20 | `Claude/feature/validation-outcome-layer` | `backend/ingestion.py`, `tests/test_ingestion.py` | C4 done: qualified name support (db.schema.table) — 3 regex patterns updated to capture dot-separated names; quoted forms (backtick/double-quote/bracket) handled via alternation; 24 new tests covering bare/2-part/3-part/quoted names for INSERT/CTAS targets and FROM/JOIN sources — 193 tests pass |
+| 2026-03-20 | `Claude/feature/validation-outcome-layer` | `.github/workflows/ci.yml`, `requirements-ci.txt`, `backend/`, `tests/`, `validation/` | CI2 done: ruff lint step added to CI (scoped to backend/tests/validation); fixed 19 pre-existing violations in those dirs; lint runs before tests on every PR |
+| 2026-03-20 | `Claude/feature/validation-outcome-layer` | `backend/logging_config.py`, `backend/metrics.py`, `backend/app.py`, `tests/test_metrics.py` | B3 done: JSON structured logging (JsonFormatter, configure_logging), in-memory Prometheus metrics (request counts/latency histograms/LLM call counters), GET /metrics endpoint, request-logging middleware, LLM call instrumentation in /api/chat and /api/chat/stream — 23 new tests |
+| 2026-03-20 | `Claude/feature/validation-outcome-layer` | `tests/test_failure_scenarios.py` | T2 done: 16 failure-scenario tests covering LLM timeout, 429 rate-limit, malformed/empty LLM response, network ConnectionError, and /api/execute DB errors — all 169 tests pass |
+| 2026-03-16 | `Claude/feature/validation-outcome-layer` | `TASK.md` | C4 added: database.schema.table naming gap — 5 breaking points documented, fix design recorded (separate db_name/schema_name columns + double-underscore Kuzu key) |
+| 2026-03-16 | `Claude/feature/validation-outcome-layer` | `frontend/src/components/ChatMessage.jsx` | QT2 done: OutcomeBadge component — ✓ green/○ amber/✕ red inline with Execute button |
+| 2026-03-16 | `Claude/feature/validation-outcome-layer` | `.github/workflows/ci.yml` | CI1 done: re-enabled pull_request trigger on master |
+| 2026-03-15 | `Claude/feature/validation-outcome-layer` | `TASK.md` | CI1–CI8: CI/CD refinement tasks added to backlog |
+| 2026-03-15 | `Claude/feature/validation-outcome-layer` | `validation/outcome_store.py`, `backend/app.py`, `tests/test_outcome_store.py`, `tests/conftest.py` | QT1 done: outcome recorder appends to outcomes.jsonl + SQLite index after every /api/execute; ExecuteRequest extended with optional nl_query/provider/session_id; 13 new tests, 130 total pass |
 | 2026-03-15 | `Claude/feature/validation-outcome-layer` | `demo/record_pages.py` | New per-page demo recorder: 4 standalone clips (query chat, schema ERD, join path, ingest table) for LinkedIn showcase; replaces single-monolith record_demo.py |
 | 2026-03-15 | `Claude/Playground/Dev` | `TASK.md` | QT1–QT4: Query Outcome Tracking feature added — runtime success/failure recorder, UI badge, corpus label feed, async failure classifier |
 | 2026-03-15 | `Claude/Playground/Dev` | `TASK.md` | VL0–VL9: Validation Layer redesigned — history-anchored corpus builder (joins QT outcomes), contender generator, typed perturbation engine, baseline canary runner, runnability checker, join advisor, daily perf log, prompt enhancement feed, scheduling config, dashboard endpoints |
@@ -244,6 +253,7 @@ Tasks ordered by impact tier. Status: `[ ]` pending · `[~]` in progress · `[x]
 | C1 | [x] | Build structured prompt template — format context as DDL/markdown, not raw dict repr | `main.py`, `APIManager/PromptBuilder.py`, `APIManager/Prompts/taskGenerateSQL.txt` |
 | C2 | [x] | Wire reranker scores into actual filtering — threshold or top-k cut on scored results | `SQLBuilderComponents.py`, `Utilities/retrieval_config.YAML` |
 | C3 | [x] | Implement `__filterAdditionalColumns__()` — filter columns by relevance to user query | `SQLBuilderComponents.py` |
+| C4 | [x] | **`database.schema.table` fully-qualified name support** — current system only stores bare table names; qualified names (`db.schema.table`) break in five distinct places; add `database_name` and `schema_name` as separate optional columns to SQLite metadata tables (mirroring the existing `instance_name` pattern), use `{db}__{schema}__{table}` as Kuzu node key, and reassemble `database.schema.table` for display/prompt output | `Utilities/base_utils.py`, `MetadataManager/MetadataBuilder/importExisting/importData.py`, `backend/ingestion.py`, `MetadataManager/MetadataStore/relationdb/kuzuDB.py`, `main.py`, `SQLBuilderComponents.py` |
 
 ### Tier 4 — Medium Impact, Medium Complexity
 
@@ -308,7 +318,7 @@ Generated by `o4-mini` on 2026-03-08. Status: `[ ]` pending · `[~]` in progress
 |----|--------|------|------------|
 | B1 | [ ] | **Circuit breakers for LLM providers** — halt requests to a failing provider after N consecutive errors and recover after a cooldown, using `pybreaker` or similar | Medium |
 | B2 | [ ] | **Thread-safe graph store** — wrap NetworkX pickle load/save in a `threading.Lock` (or replace with an in-memory concurrent structure) to prevent race conditions on the server | Medium |
-| B3 | [ ] | **Structured logging & metrics** — emit JSON log lines and expose a Prometheus endpoint for request latencies, error rates, and LLM call counts | Medium |
+| B3 | [x] | **Structured logging & metrics** — emit JSON log lines and expose a Prometheus endpoint for request latencies, error rates, and LLM call counts | Medium |
 | B4 | [x] | **Migrate Anthropic to `/v1/messages`** — drop legacy `/v1/complete` + `claude-2.0`; update template and auth header; use `claude-haiku-4-5` or newer | Low |
 
 ### Testing Coverage Gaps
@@ -316,9 +326,28 @@ Generated by `o4-mini` on 2026-03-08. Status: `[ ]` pending · `[~]` in progress
 | ID | Status | Idea | Complexity |
 |----|--------|------|------------|
 | T1 | [ ] | **RAG pipeline integration tests** — spin up a temporary ChromaDB + NetworkX graph and validate retrieval accuracy end-to-end | Medium |
-| T2 | [ ] | **Failure-scenario fixtures** — pytest fixtures that simulate LLM timeouts, rate-limit 429s, and malformed responses to verify graceful degradation | Low |
+| T2 | [x] | **Failure-scenario fixtures** — pytest fixtures that simulate LLM timeouts, rate-limit 429s, and malformed responses to verify graceful degradation | Low |
 | T3 | [ ] | **Frontend component tests** — Jest + React Testing Library coverage for Chat bubble rendering, ERD node interactions, and Ingest Wizard steps | Medium |
 | T4 | [ ] | **Load tests** — Locust scenarios for concurrent chat sessions to surface throughput bottlenecks before they hit production | Medium |
+
+### CI/CD Refinement
+
+Current state: one workflow (`ci.yml`) that only runs `pytest` on push to `master`. PR check is explicitly disabled. No linting, no frontend tests, no CD, no branch protection.
+
+| ID | Status | Task | Complexity | Files |
+|----|--------|------|------------|-------|
+| CI1 | [x] | **Re-enable PR check** — uncomment the `pull_request` trigger in `ci.yml` so tests must pass before any PR can be merged into `master`; this is the single highest-leverage CI change and unblocks all others | Low | `.github/workflows/ci.yml` |
+| CI2 | [x] | **Add ruff lint step** — `pyproject.toml` already has ruff config; add a `ruff check .` step to the CI job so style/import errors are caught on every PR before tests even run | Low | `.github/workflows/ci.yml` |
+| CI3 | [ ] | **Add frontend Vitest step** — add a second CI job that runs `npm ci && npm test` in `frontend/`; cache `node_modules` with `actions/cache` keyed on `package-lock.json` hash | Low | `.github/workflows/ci.yml` |
+| CI4 | [ ] | **Split into parallel jobs** — separate the workflow into three independent jobs (`lint`, `backend-tests`, `frontend-tests`) that run in parallel; reduces total CI wall time; `lint` is a prerequisite gate for the test jobs | Low | `.github/workflows/ci.yml` |
+| CI5 | [ ] | **Add pip-audit security scan** — run `pip-audit -r requirements-ci.txt` as a non-blocking CI step to surface known Python CVEs; complement to the existing Dependabot frontend alerts | Low | `.github/workflows/ci.yml`, `requirements-ci.txt` |
+| CI6 | [ ] | **Branch protection rules** — on GitHub: require CI to pass + at least one review before merge to `master`; block force-push to `master`; these are repo settings, not workflow changes | Low | GitHub repo settings |
+| CI7 | [ ] | **requirements-ci.txt sync check** — add a CI step that diffs `requirements-ci.txt` against `pyproject.toml` optional deps to catch cases where a new runtime dep is added but the CI install file isn't updated | Medium | `.github/workflows/ci.yml` |
+| CI8 | [ ] | **CD pipeline (optional)** — add a `deploy` job triggered only on merge to `master` that builds the frontend (`npm run build`) and packages/deploys the backend; target depends on hosting choice (Render, Railway, Docker Hub) | High | `.github/workflows/cd.yml` |
+
+**Recommended order:** CI1 → CI2 → CI3 → CI4 → CI5 → CI6 (CI8 only once a hosting target is decided)
+
+---
 
 ### Developer Experience
 
@@ -399,8 +428,8 @@ User sends message
 
 | ID | Status | Task | Complexity | Files |
 |----|--------|------|------------|-------|
-| QT1 | [ ] | **Outcome recorder** — after `/api/execute` returns, append a structured outcome record `{session_id, query_id, nl_query, generated_sql, provider, query_type, outcome: "success"\|"failure"\|"empty", error_type, error_msg, row_count, latency_ms, ts}` to `validation/corpus/outcomes.jsonl`; also write a lightweight SQLite table `query_outcomes` for indexed lookups by date/provider/outcome | Medium | `backend/app.py`, `backend/executor.py`, `validation/outcome_store.py` |
-| QT2 | [ ] | **UI outcome badge** — attach a success/failure indicator to each SQL/code chat bubble: green check + row count on success, red badge + short error type on failure; clicking the badge expands the full error message and a "Report issue" button that flags the record in the outcome store for priority review | Low | `frontend/src/components/ChatMessage.jsx`, `backend/app.py` |
+| QT1 | [x] | **Outcome recorder** — after `/api/execute` returns, append a structured outcome record `{session_id, query_id, nl_query, generated_sql, provider, query_type, outcome: "success"\|"failure"\|"empty", error_type, error_msg, row_count, latency_ms, ts}` to `validation/corpus/outcomes.jsonl`; also write a lightweight SQLite table `query_outcomes` for indexed lookups by date/provider/outcome | Medium | `backend/app.py`, `backend/executor.py`, `validation/outcome_store.py` |
+| QT2 | [x] | **UI outcome badge** — attach a success/failure indicator to each SQL/code chat bubble: green check + row count on success, red badge + short error type on failure; clicking the badge expands the full error message and a "Report issue" button that flags the record in the outcome store for priority review | Low | `frontend/src/components/ChatMessage.jsx`, `backend/app.py` |
 | QT3 | [ ] | **Corpus label feed** — VL0 corpus builder joins against `outcomes.jsonl` when building corpus entries so each record carries `outcome`, `error_type`, and `row_count` from the real execution; this lets the perturbation engine (VL2) weight mutations toward query patterns that already have a failure history | Low | `validation/corpus_builder.py` |
 | QT4 | [ ] | **Failure classification** — when an execution fails, a lightweight LLM call (cheap model, single-shot) classifies the error into a taxonomy: `schema_mismatch`, `ambiguous_join`, `missing_table`, `syntax_error`, `permission_denied`, `empty_result_unexpected`; stored as `error_type` in the outcome record and surfaced in daily reports by category | Medium | `validation/failure_classifier.py` |
 
@@ -484,6 +513,40 @@ Real user query history
 - Join advisor re-uses `_get_full_table_schema()` + Kuzu/NetworkX traversal already in `main.py`
 - Daily reports are append-only flat files; no new DB table needed initially
 - Prompt suggestions are staging-only — a human reviews `validation/prompt_suggestions/` before any commit
+
+---
+
+---
+
+### C4 — `database.schema.table` Fully-Qualified Name Support
+
+*Identified: 2026-03-16 · Branch: `Claude/feature/validation-outcome-layer`*
+
+Current system stores only bare table names (e.g. `orders`). Users working with multi-database or multi-schema environments use `database.schema.table` notation (e.g. `prod.sales.orders`). This breaks in five distinct places.
+
+**Breaking points:**
+
+| File | Location | How it breaks |
+|------|----------|---------------|
+| `Utilities/base_utils.py` | `_validate_identifier()` — regex `^[A-Za-z_][A-Za-z0-9_]*$` | Rejects dots — SQLite CRUD fails before executing |
+| `backend/ingestion.py` | Source table regex `\w+` (parse_pipeline) | Only captures the leaf table name; silently drops `db.schema` prefix |
+| `MetadataManager/MetadataStore/relationdb/kuzuDB.py` | Node key uses `.lower()` of plain name | Graph node names break with dot characters |
+| `main.py` | `_get_full_table_schema()` — SQLite lookup by bare `tableName` | Returns nothing for qualified names; LLM gets empty schema |
+| ChromaDB metadata | `TableName` stored as-is | Instance filtering (`instance_name`) stops working when TableName includes dots |
+
+**Proposed fix design:**
+
+1. **SQLite schema change**: Add `database_name TEXT DEFAULT ''` and `schema_name TEXT DEFAULT ''` columns to both `tableDesc` and `tableColMetadata` — mirrors the existing `instance_name` pattern. Migration: `ALTER TABLE ... ADD COLUMN` (safe, non-breaking for existing rows).
+
+2. **Ingestion / import**: When storing a table named `db.schema.table`, parse and store components separately. Bare names leave `database_name` and `schema_name` empty (backward-compatible).
+
+3. **Kuzu node key**: Use `{database}__{schema}__{table}` with double underscores as the graph node identifier. Avoids dot issues; double-underscore is unlikely to appear in real names. Plain names become `______{table}` (two empty parts) — or use a helper `_node_key(db, schema, table)`.
+
+4. **Display / prompt reassembly**: Wherever a table name is displayed to the user or injected into a prompt, reassemble as `database.schema.table` (omitting empty parts) for correct SQL output.
+
+5. **`_validate_identifier()`**: Update regex to allow dots (for qualified names) or validate each component separately before a lookup.
+
+**Backward compatibility**: All existing bare-name metadata remains valid — `database_name = ''` and `schema_name = ''` behave identically to the current system.
 
 ---
 

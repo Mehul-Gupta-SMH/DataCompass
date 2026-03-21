@@ -1,5 +1,5 @@
 """
-Auth utilities for Data Compass.
+Auth utilities for Poly-QL.
 
 Provides:
   - SQLite-backed user accounts  (PBKDF2 — stdlib only, no passlib)

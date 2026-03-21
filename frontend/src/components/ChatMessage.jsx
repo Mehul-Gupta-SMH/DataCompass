@@ -34,16 +34,41 @@ function ResultsTable({ columns, rows }) {
   )
 }
 
-function RunQueryPanel({ content, queryType }) {
+// Outcome badge shown after execution: success / empty / failure
+function OutcomeBadge({ outcome, rowCount, errorMsg }) {
+  if (!outcome) return null
+
+  const cfg = {
+    success: { bg: '#dcfce7', border: '#86efac', color: '#15803d', icon: '✓', text: `${rowCount} row${rowCount === 1 ? '' : 's'}` },
+    empty:   { bg: '#fefce8', border: '#fde047', color: '#854d0e', icon: '○', text: 'No rows returned' },
+    failure: { bg: '#fee2e2', border: '#fca5a5', color: '#991b1b', icon: '✕', text: errorMsg || 'Execution failed' },
+  }[outcome]
+
+  if (!cfg) return null
+
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+      background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.color,
+    }}>
+      {cfg.icon} {cfg.text}
+    </span>
+  )
+}
+
+function RunQueryPanel({ content, queryType, onOutcome }) {
   const [open, setOpen] = useState(false)
   const [connStr, setConnStr] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
-  const [error, setError] = useState('')
+  const [outcome, setOutcome] = useState(null)   // 'success' | 'empty' | 'failure'
+  const [errorMsg, setErrorMsg] = useState('')
 
   async function handleRun() {
-    setError('')
+    setOutcome(null)
     setResult(null)
+    setErrorMsg('')
     setLoading(true)
     try {
       const res = await apiFetch('/api/execute', {
@@ -51,10 +76,25 @@ function RunQueryPanel({ content, queryType }) {
         body: JSON.stringify({ generated_query: content, query_type: queryType, connection_string: connStr }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.detail ?? 'Execution failed.'); return }
-      setResult(data)
+      if (!res.ok) {
+        setOutcome('failure')
+        setErrorMsg(data.detail ?? 'Execution failed.')
+        onOutcome?.('failure')
+        return
+      }
+      if (data.rows?.length > 0) {
+        setOutcome('success')
+        setResult(data)
+        onOutcome?.('success', data.rows.length)
+      } else {
+        setOutcome('empty')
+        setResult(data)
+        onOutcome?.('empty', 0)
+      }
     } catch {
-      setError('Network error.')
+      setOutcome('failure')
+      setErrorMsg('Network error.')
+      onOutcome?.('failure', 0)
     } finally {
       setLoading(false)
     }
@@ -96,8 +136,11 @@ function RunQueryPanel({ content, queryType }) {
             >
               {loading ? 'Running…' : 'Execute'}
             </button>
+            <OutcomeBadge outcome={outcome} rowCount={result?.rows?.length ?? 0} errorMsg={errorMsg} />
           </div>
-          {error && <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 6 }}>{error}</p>}
+          {outcome === 'failure' && (
+            <p style={{ color: '#b91c1c', fontSize: 12, marginTop: 6 }}>{errorMsg}</p>
+          )}
           {result && <ResultsTable columns={result.columns} rows={result.rows} />}
         </div>
       )}
@@ -108,7 +151,7 @@ function RunQueryPanel({ content, queryType }) {
 // ---------------------------------------------------------------------------
 // Individual message bubble
 // ---------------------------------------------------------------------------
-export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
+export default function ChatMessage({ msg, onRetry, onOptionSelect, onOutcome }) {
   const [copied, setCopied] = useState(false)
 
   const isUser = msg.role === 'user'
@@ -338,7 +381,7 @@ export default function ChatMessage({ msg, onRetry, onOptionSelect }) {
         )}
 
         {/* Run query panel */}
-        {canRun && <RunQueryPanel content={msg.content} queryType={msg.queryType} />}
+        {canRun && <RunQueryPanel content={msg.content} queryType={msg.queryType} onOutcome={onOutcome} />}
       </div>
     </div>
   )

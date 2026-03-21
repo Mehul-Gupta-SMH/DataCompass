@@ -76,12 +76,30 @@ function SessionPane({ sessions, currentId, onSelect, onNew, onDelete }) {
               onClick={() => onSelect(s)}
               style={{ padding: '7px 28px 7px 10px' }}
             >
-              <div style={{
-                fontSize: 13, fontWeight: s.id === currentId ? 600 : 400,
-                color: '#1f2937',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-              }}>
-                {s.title}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{
+                  fontSize: 13, fontWeight: s.id === currentId ? 600 : 400,
+                  color: '#1f2937', flex: 1,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {s.title}
+                </div>
+                {s.lastOutcome && (
+                  <span
+                    title={s.lastOutcome === 'success' ? 'Query ran successfully' : s.lastOutcome === 'empty' ? 'Query returned no rows' : 'Query failed'}
+                    style={{
+                      flexShrink: 0,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: s.lastOutcome === 'success' ? '#16a34a'
+                                : s.lastOutcome === 'empty'   ? '#ca8a04'
+                                : '#dc2626',
+                      boxShadow: `0 0 0 2px ${
+                        s.lastOutcome === 'success' ? '#bbf7d0'
+                        : s.lastOutcome === 'empty' ? '#fef08a'
+                        : '#fecaca'}`,
+                    }}
+                  />
+                )}
               </div>
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
                 {formatTimestamp(s.timestamp)} · {PROVIDER_LABELS[s.provider] ?? s.provider}
@@ -504,7 +522,24 @@ export default function ChatInterface({ providers }) {
           )}
 
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect} />
+            <ChatMessage key={msg.id} msg={msg} onRetry={handleRetry} onOptionSelect={handleOptionSelect}
+              onOutcome={(outcome) => {
+                setSessions((prev) => {
+                  const next = prev.map((s) =>
+                    s.id === sessionIdRef.current ? { ...s, lastOutcome: outcome } : s
+                  )
+                  // persist using the freshly-updated session (avoids stale closure)
+                  const updated = next.find((s) => s.id === sessionIdRef.current)
+                  if (updated) {
+                    apiFetch('/api/sessions', {
+                      method: 'POST',
+                      body: JSON.stringify(updated),
+                    }).catch(() => {})
+                  }
+                  return next
+                })
+              }}
+            />
           ))}
 
           {loading && (
