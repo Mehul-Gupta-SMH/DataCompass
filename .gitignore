@@ -20,6 +20,10 @@ frontend/dist/
 demo/*.webm
 demo/_tmp_*/
 
+# SQLite WAL-mode runtime files
+backend/data/*.db-shm
+backend/data/*.db-wal
+
 # Runtime outcome store artifacts
 validation/corpus/outcomes.db
 validation/corpus/outcomes.jsonl

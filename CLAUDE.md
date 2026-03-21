@@ -50,10 +50,18 @@ Guidelines and context for AI-assisted development on this project.
 
 ## Testing
 
-- Test suite lives in `tests/`
-- `conftest.py` pre-mocks heavy ML packages (torch, chromadb, sentence-transformers, FlagEmbedding)
+- Test suite lives in `tests/` — 193 tests as of 2026-03-21
+- `conftest.py` pre-mocks heavy ML packages (torch, chromadb, sentence-transformers, FlagEmbedding, sqlalchemy, pyvis)
+- `requirements-ci.txt` installs the lightweight runtime deps CI needs (requests, kuzu, PyJWT, etc.)
 - Run all tests: `pytest tests/`
-- Balance tests use `unittest.mock.patch("requests.get")` / `patch("requests.post")` — no real HTTP calls
+- Lint: `python -m ruff check backend/ tests/ validation/` (runs in CI before tests)
+
+## Observability
+
+- `backend/logging_config.py` — `configure_logging()` switches root logger to JSON format on startup
+- `backend/metrics.py` — in-memory Prometheus counters; `GET /metrics` exposes them
+- Every HTTP request is logged as a JSON line with `method`, `path`, `status`, `latency_ms`
+- LLM calls in `/api/chat` and `/api/chat/stream` are counted per provider
 
 ---
 
@@ -78,3 +86,9 @@ Guidelines and context for AI-assisted development on this project.
 | 2026-03-13 | `Utilities/retrieval_config.YAML` | R1: Added `re_retrieval` config section: `max_rounds`, `min_direct_tables`, `rewrite_provider` |
 | 2026-03-13 | `tests/test_adaptive_retrieval.py` | R1: 9 new tests covering confident-first-round, rewrite-improves, stagnation, empty-schema, rewriter-exception |
 | 2026-03-13 | `tests/test_kuzu.py` | Fix: test isolation — patch `_kuzu_base_dir` directly and clear `_DB_POOL`/`_SCHEMA_READY` in migration test to prevent lru_cache poisoning across test runs |
+| 2026-03-16 | `validation/outcome_store.py`, `backend/app.py`, `tests/test_outcome_store.py` | QT1: outcome recorder — appends `{session_id, query_id, nl_query, generated_sql, provider, outcome, error_type, row_count, latency_ms}` to `outcomes.jsonl` + SQLite after every `/api/execute` |
+| 2026-03-16 | `frontend/src/components/ChatMessage.jsx`, `ChatInterface.jsx` | QT2: outcome badge (✓/○/✕) inline with Execute button; session-pane dot (green/amber/red) next to session title |
+| 2026-03-20 | `backend/logging_config.py`, `backend/metrics.py`, `backend/app.py` | B3: JSON structured logging + Prometheus metrics — `GET /metrics`, request middleware, LLM call counters |
+| 2026-03-20 | `tests/test_failure_scenarios.py` | T2: 16 failure-scenario tests — LLM timeout, 429, malformed/empty response, ConnectionError, executor errors |
+| 2026-03-20 | `.github/workflows/ci.yml`, `requirements-ci.txt` | CI2: ruff lint step added to CI; `ruff check backend/ tests/ validation/` runs before tests on every PR |
+| 2026-03-20 | `backend/ingestion.py`, `tests/test_ingestion.py` | C4: `database.schema.table` qualified name support — 3 regex patterns in `parse_pipeline` updated; 24 new tests |
