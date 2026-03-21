@@ -19,3 +19,7 @@ frontend/dist/
 # demo/pages/ clips are committed so README embeds work on GitHub
 demo/*.webm
 demo/_tmp_*/
+
+# Runtime outcome store artifacts
+validation/corpus/outcomes.db
+validation/corpus/outcomes.jsonl
