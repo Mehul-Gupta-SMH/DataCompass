@@ -57,6 +57,9 @@ Ask *"Which customers placed the most orders last quarter?"* and get a ready-to-
 | **Multi-database instances** | Tag tables with a database type (Snowflake, Databricks, MS SQL, etc.) and a named instance — query each instance independently |
 | **Join Path explorer** | Select any two tables and instantly see the shortest JOIN route, with join keys and cardinality annotations |
 | **Derivative Tables** | See which tables were built from a source table via pipeline SQL, and which tables a derived table originates from |
+| **Qualified table names** | Full `database.schema.table` notation supported in pipeline ingestion — qualifiers are preserved through parsing and stored correctly |
+| **Execution outcome tracking** | Every query run via the UI records a success / empty / failure verdict with latency and error details — powers the future validation layer |
+| **Observability** | JSON-structured request logs and a `GET /metrics` Prometheus endpoint for request latencies, error rates, and LLM call counts per provider |
 | **User accounts** | Login / register with username + password, or **Sign in with Google** |
 | **Session history** | Conversations are saved per user and accessible across sessions |
 
@@ -264,7 +267,13 @@ gather_requirements:
 python -m pytest tests/ -v
 ```
 
-108 tests, no API keys or ML models required — all external dependencies are mocked in `tests/conftest.py`.
+193 tests, no API keys or ML models required — all external dependencies are mocked in `tests/conftest.py`.
+
+CI also runs a lint check before tests:
+
+```bash
+python -m ruff check backend/ tests/ validation/
+```
 
 ---
 
@@ -278,7 +287,9 @@ SQLCoder/
 │   ├── app.py                 # FastAPI application + all endpoints
 │   ├── auth.py                # JWT auth, user accounts, sessions (SQLite)
 │   ├── balance.py             # Provider credit/availability checker (GET /api/providers/balance)
-│   └── ingestion.py           # Pipeline SQL parsing + LLM-assisted data dictionary generation
+│   ├── ingestion.py           # Pipeline SQL parsing + LLM-assisted data dictionary generation
+│   ├── logging_config.py      # JSON structured log formatter (configure_logging)
+│   └── metrics.py             # In-memory Prometheus counters (GET /metrics)
 ├── frontend/
 │   └── src/
 │       ├── App.jsx
@@ -296,7 +307,10 @@ SQLCoder/
 │       │   └── networkxDB.py  # Legacy NetworkX backend (still available via strgType="networkx")
 │       └── vdb/               # ChromaDB vector store abstraction
 ├── Utilities/                 # Config loader, SQLite CRUD, YAML configs
-└── tests/                     # pytest suite (108 tests)
+├── validation/
+│   ├── outcome_store.py       # Records query execution outcomes (success/empty/failure) to JSONL + SQLite
+│   └── corpus/                # Runtime store — gitignored
+└── tests/                     # pytest suite (193 tests)
 ```
 
 For architecture deep-dives and extension guides see **[DEVELOPER.md](DEVELOPER.md)**.
