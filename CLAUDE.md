@@ -48,6 +48,15 @@ Guidelines and context for AI-assisted development on this project.
 
 ---
 
+## Release Notes
+
+- Maintain `CHANGELOG.md` in the project root following [Keep a Changelog](https://keepachangelog.com/) format
+- Current version: **0.0.1** (released 2026-03-21)
+- Add an `[Unreleased]` section at the top for work-in-progress; move to a versioned section on release
+- Per-release highlight summaries go in `docs/release/vX.Y.Z.md`
+
+---
+
 ## Testing
 
 - Test suite lives in `tests/` — 193 tests as of 2026-03-21

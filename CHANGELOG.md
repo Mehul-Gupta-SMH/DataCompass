@@ -1,0 +1,90 @@
+# Changelog
+
+All notable changes to Poly-QL are documented here.
+
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [Unreleased]
+
+### Planned (Phase 2 — after QT1 accumulates real data)
+- **SL0–SL6** Business Semantic Layer — glossary-driven term-to-table resolution with formula injection ([#20](https://github.com/Mehul-Gupta-SMH/PolyQL/issues/20))
+- **QT4** Rule-based failure classifier — taxonomy-driven error categorisation (schema_mismatch, ambiguous_join, syntax_error, …)
+- **P2** In-process RAG cache — TTL dict to skip repeated ChromaDB lookups for the same query
+- **VL0** Query corpus builder — joins QT1 outcomes into a labeled corpus for the validation layer
+- **CI3** Frontend Vitest step in CI
+- **CI4** Parallel lint / backend-test / frontend-test jobs
+
+---
+
+## [0.0.1] — 2026-03-21
+
+Initial public release. Full-stack NL→SQL assistant with multi-provider LLM support, schema management, streaming, and observability.
+
+### Added
+
+#### Core Query Engine
+- **Two-agent query flow** — `gatherRequirements()` runs a tool loop (up to configurable `max_tool_calls`) to fetch table schemas before generating; `generateQuery()` / `generateQueryStream()` produce the final SQL using the assembled context
+- **Adaptive re-retrieval (R1)** — when ChromaDB returns weak results, an LLM rewrites the search query using the table directory and retries up to `max_rounds` times; stagnation and empty-rewrite early-exits prevent wasted calls
+- **Batch schema preloading** — `_preload_schemas_bulk()` replaces N × 2 per-table SQLite round-trips with 2 bulk queries at gather startup
+- **Clarifying questions with option pills** — gathering agent returns `options[]` alongside its question; rendered as clickable pill buttons in the chat UI; retry strips assistant clarify history for a clean re-evaluation
+- **Multiple output modes** — SQL · Spark SQL · PySpark DataFrame API · Pandas
+
+#### LLM Providers
+- **OpenAI** — GPT-4o mini · GPT-4o · GPT-4.1 · GPT-3.5 Turbo
+- **OpenAI Codex** — o4-mini · o3-mini · o3 · o1
+- **Anthropic** — Claude 3.5 Haiku · Claude 3.5 Sonnet · Claude Sonnet 4.6 · Claude Opus 4.6
+- **Google Gemini** — 2.0 Flash · 2.0 Flash Lite · 1.5 Pro · 1.5 Flash
+- **GROQ** — Gemma 7B · Llama 3.3 70B · Llama 3.1 8B · Mixtral 8x7B
+- **Claude Code CLI** — runs `claude -p` as a subprocess; no API key required
+- **Provider balance endpoint** — `GET /api/providers/balance` checks credit/availability concurrently; greyed-out UI for invalid/depleted providers
+- **Token usage tracker** — `backend/usage_tracker.py` records Claude Code CLI call counts, tokens, and estimated cost per session
+- **Exponential backoff retry** — `CallLLMApi.CallService()` retries on HTTP 429/500/502/503/504 (1 s → 2 s → 4 s); non-retryable codes fail immediately
+- **Token-by-token SSE streaming** — `POST /api/chat/stream` streams LLM output via Server-Sent Events; frontend renders tokens incrementally in a live bubble; `done` event finalises
+
+#### Schema Management
+- **ChromaDB vector store** — table descriptions embedded with `mxbai-embed-large-v1`; BM25 + cross-encoder reranker filtering pipeline
+- **Kuzu embedded graph DB** — replaces NetworkX pickle; Cypher-backed JOIN path queries; auto-migrates `Relations.pickle` on first run
+- **Multi-database instance support** — `instance_name` + `db_type` columns on all metadata tables; ChromaDB metadata filter; separate Kuzu DB per instance; `GET /api/instances`
+- **Qualified table names (C4)** — `database.schema.table` notation supported end-to-end in pipeline ingestion; backtick/double-quote/bracket/bare quoted forms all parsed correctly
+
+#### Pipeline Ingestion
+- **Ingest Table** — paste `INSERT INTO … SELECT` or `CREATE TABLE … AS SELECT`; LLM auto-generates full data dictionary (`tableDesc`, column descriptions, derivation logic); 2-step review wizard before commit
+- **Pipeline lineage** — source → target table edges stored in Kuzu; `GET /api/derivatives/{table}` returns parent/child tables
+
+#### Frontend
+- **Chat tab** — multi-turn conversation with left-pane session history (30 sessions in `localStorage`); session auto-save; streaming bubble with `●●●` placeholder during generation
+- **Schema / ERD tab** — interactive React Flow entity-relationship diagram; click any table for data dictionary side pane
+- **Ingest Table tab** — 2-step wizard matching the backend preview/commit flow
+- **Join Path tab** — select any two tables, get the shortest JOIN route with join keys and cardinality; Derivative Tables sub-tab for lineage
+- **Provider / model toolbar** — dropdowns for provider and model per session; balance-aware (invalid/depleted entries greyed out)
+- **Outcome badge** — green ✓ / amber ○ / red ✕ inline with Execute button; session pane dot reflects last query outcome
+
+#### Auth & Sessions
+- **User accounts** — register / login with username + password; JWT tokens; `GET /api/auth/me`
+- **Sign in with Google** — OAuth 2.0 SSO; `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` env vars; button auto-appears when configured
+
+#### Observability
+- **JSON structured logging** — `backend/logging_config.py`; `_JsonFormatter` emits single-line JSON per record; called once at FastAPI lifespan startup; every HTTP request logged with method, path, status, and `latency_ms`
+- **Prometheus metrics** — `backend/metrics.py`; in-memory counters (no external dependency); tracks request counts by method/path/status, latency histograms, LLM call counts and errors by provider; `GET /metrics` returns valid Prometheus text format
+
+#### Query Outcome Tracking
+- **Outcome recorder (QT1)** — every `/api/execute` call appends a structured record `{session_id, nl_query, generated_sql, provider, query_type, outcome, error_type, error_msg, row_count, latency_ms, ts}` to `validation/corpus/outcomes.jsonl` and a SQLite index `outcomes.db`
+- **UI outcome badge (QT2)** — success/failure/empty verdict displayed inline with the Execute button; session pane dot updated per outcome
+
+#### Testing & CI
+- **193-test pytest suite** — all external dependencies mocked in `tests/conftest.py`; no API keys or ML models required
+- **Failure-scenario fixtures (T2)** — 16 tests covering LLM timeout, HTTP 429, malformed/empty LLM response, network `ConnectionError`, and `/api/execute` DB errors
+- **CI pipeline** — GitHub Actions on every PR to `master`; ruff lint (scoped to `backend/`, `tests/`, `validation/`) runs before tests
+
+### Architecture
+- FastAPI backend (`backend/app.py`) with lifespan startup, HTTP middleware, and SSE streaming
+- Vite + React frontend with React Flow for graph visualisations
+- SQLite for table/column metadata and auth; ChromaDB for embeddings; Kuzu for graph relations; JSONL + SQLite for outcome history
+- `pyproject.toml` with optional `dev` and `graph-db` extras; `requirements-ci.txt` for CI install
+
+---
+
+*See [TASK.md](TASK.md) for the full backlog and [docs/](docs/) for Mermaid architecture diagrams.*
