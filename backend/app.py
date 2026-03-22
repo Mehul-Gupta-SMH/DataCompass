@@ -21,6 +21,7 @@ from main import generateQuery, generateQueryStream, gatherRequirements, SQLVali
 from backend.auth import get_current_user
 from backend.logging_config import configure_logging
 from backend.metrics import metrics
+from backend.glossary import router as glossary_router
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SQLCoder API", lifespan=lifespan)
 
+app.include_router(glossary_router)  # SL3: business glossary endpoints
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:4173"],
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
 

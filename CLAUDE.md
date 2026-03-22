@@ -102,3 +102,8 @@ Guidelines and context for AI-assisted development on this project.
 | 2026-03-20 | `tests/test_failure_scenarios.py` | T2: 16 failure-scenario tests — LLM timeout, 429, malformed/empty response, ConnectionError, executor errors |
 | 2026-03-20 | `.github/workflows/ci.yml`, `requirements-ci.txt` | CI2: ruff lint step added to CI; `ruff check backend/ tests/ validation/` runs before tests on every PR |
 | 2026-03-20 | `backend/ingestion.py`, `tests/test_ingestion.py` | C4: `database.schema.table` qualified name support — 3 regex patterns in `parse_pipeline` updated; 24 new tests |
+| 2026-03-22 | `MetadataManager/GlossaryStore.py` | SL0+SL1: `business_terms` SQLite table + CRUD (`add_term`, `get_term`, `update_term`, `delete_term`, `list_terms`, `search_by_name`) + `index_term()` ChromaDB embed + `get_business_context()` semantic search |
+| 2026-03-22 | `main.py` | SL2: `_get_business_context()` wrapper; called in `generateQuery`, `generateQueryStream`, `gatherRequirements`; attaches `glossary_hits` to context dict before `format_schema` |
+| 2026-03-22 | `APIManager/PromptBuilder.py` | SL2: `format_schema()` renders `## Business Definitions` block from `context['glossary_hits']` — term name, formula, table deps, example — prepended before schema section |
+| 2026-03-22 | `backend/glossary.py`, `backend/app.py` | SL3: Glossary REST API (single/bulk POST, GET, PUT, DELETE, lexical search); CORS updated to allow PUT |
+| 2026-03-22 | `tests/test_glossary_store.py`, `tests/test_glossary_retrieval.py` | SL6: 35 CRUD tests + 19 semantic/injection tests; all 247 suite tests pass |

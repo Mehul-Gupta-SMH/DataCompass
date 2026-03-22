@@ -9,8 +9,18 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+#### Business Semantic Layer (SL0–SL3, SL6)
+- **SL0 — GlossaryStore CRUD** — `MetadataManager/GlossaryStore.py`: `business_terms` SQLite table auto-migrated into `tableMetadata.db`; full CRUD (`add_term`, `get_term`, `get_term_by_name`, `update_term`, `delete_term`, `list_terms`, `search_by_name`); JSON fields (`table_deps`, `column_deps`, `synonyms`) serialised transparently
+- **SL1 — Glossary embedding + semantic search** — `index_term()` embeds `term_name + full_name + definition + synonyms` into a dedicated `business_glossary` ChromaDB collection; `get_business_context()` cosine-similarity searches top-k terms, distance-threshold gated, SQLite-enriched, graceful fallback to `[]`
+- **SL2 — Retrieval integration** — `_get_business_context()` in `main.py` called before prompt assembly in `generateQuery`, `generateQueryStream`, and `gatherRequirements`; `PromptBuilder.format_schema()` renders matched terms as a `## Business Definitions` block (term name, full name, formula, table dependencies, example value) prepended to the schema section so the LLM uses canonical formulas
+- **SL3 — Glossary REST API** — `backend/glossary.py` (`APIRouter`): `POST /api/glossary/terms/single`, `POST /api/glossary/terms/bulk`, `GET /api/glossary/terms`, `GET /api/glossary/terms/{id}`, `PUT /api/glossary/terms/{id}`, `DELETE /api/glossary/terms/{id}`, `GET /api/glossary/search?q=`; registered in `backend/app.py`; CORS updated to allow `PUT`
+- **SL6 — Tests** — 35 CRUD unit tests (`tests/test_glossary_store.py`) and 19 semantic/injection tests (`tests/test_glossary_retrieval.py`); all 247 suite tests pass
+
 ### Planned (Phase 2 — after QT1 accumulates real data)
-- **SL0–SL6** Business Semantic Layer — glossary-driven term-to-table resolution with formula injection ([#20](https://github.com/Mehul-Gupta-SMH/PolyQL/issues/20))
+- **SL4** Glossary UI tab — searchable table, Add Term modal, bulk CSV/JSON import
+- **SL5** Term–table annotation nodes on the Schema/ERD tab
 - **QT4** Rule-based failure classifier — taxonomy-driven error categorisation (schema_mismatch, ambiguous_join, syntax_error, …)
 - **P2** In-process RAG cache — TTL dict to skip repeated ChromaDB lookups for the same query
 - **VL0** Query corpus builder — joins QT1 outcomes into a labeled corpus for the validation layer

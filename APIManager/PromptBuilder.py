@@ -87,16 +87,58 @@ class PromptBuilder:
         into a structured markdown schema string for the LLM prompt.
 
         Args:
-            context (dict): Dict with keys 'user_query', 'table_list', 'join_keys'.
+            context (dict): Dict with keys 'user_query', 'table_list', 'join_keys',
+                            and optionally 'glossary_hits' (list of business term dicts
+                            from GlossaryStore.get_business_context).
 
         Returns:
-            str: Markdown-formatted schema and question.
+            str: Markdown-formatted schema and question, with an optional
+                 ## Business Definitions block prepended when glossary_hits is present.
         """
         lines = []
 
         lines.append("## User Question")
         lines.append(context["user_query"].strip())
         lines.append("")
+
+        # SL2: inject business glossary hits before the schema block
+        glossary_hits = context.get("glossary_hits") or []
+        if glossary_hits:
+            lines.append("## Business Definitions")
+            lines.append(
+                "The following business terms are relevant to this query. "
+                "Use their formulas as the canonical definition — do not derive your own."
+            )
+            lines.append("")
+            for hit in glossary_hits:
+                term_name = hit.get("term_name") or ""
+                full_name = hit.get("full_name") or ""
+                header = f"### {term_name}"
+                if full_name:
+                    header += f" ({full_name})"
+                lines.append(header)
+
+                if hit.get("definition"):
+                    lines.append(f"> {hit['definition']}")
+
+                if hit.get("formula"):
+                    ftype = hit.get("formula_type") or "expression"
+                    lines.append(f"**Formula ({ftype}):** `{hit['formula']}`")
+
+                deps = hit.get("table_deps") or []
+                if isinstance(deps, str):
+                    try:
+                        import json as _json
+                        deps = _json.loads(deps)
+                    except Exception:
+                        deps = []
+                if deps:
+                    lines.append(f"**Table dependencies:** {', '.join(deps)}")
+
+                if hit.get("example_value"):
+                    lines.append(f"**Example:** {hit['example_value']}")
+
+                lines.append("")
 
         lines.append("## Database Schema")
 
