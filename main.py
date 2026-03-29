@@ -171,6 +171,21 @@ _PROMPT_MAP = {
 }
 
 
+def _get_business_context(query: str, instance_name: str = "default") -> list:
+    """
+    SL2: Retrieve semantically matched business terms for *query*.
+
+    Delegates to GlossaryStore.get_business_context() and falls back to []
+    on any error so that the main query pipeline is never blocked.
+    """
+    try:
+        from MetadataManager.GlossaryStore import get_business_context
+        return get_business_context(query, instance_name=instance_name)
+    except Exception as exc:
+        logger.warning("_get_business_context failed (non-fatal): %s", exc)
+        return []
+
+
 def _is_retrieval_confident(context: dict, min_tables: int) -> bool:
     """Return True when the context contains at least min_tables direct tables."""
     direct = context.get("table_list", {}).get("direct", {})
@@ -343,6 +358,9 @@ def generateQuery(
     if no_tables:
         logger.error("R1: all retrieval rounds exhausted with no tables found for query %r — schema section will be empty", rag_query)
 
+    # SL2: attach business glossary hits so format_schema renders ## Business Definitions
+    context["glossary_hits"] = _get_business_context(rag_query, instance_name=instance_name)
+
     schema_str = PromptBuilder.format_schema(context)
     conversation_str = _format_conversation(conversation)
 
@@ -410,6 +428,9 @@ def generateQueryStream(
     no_tables = not any(context["table_list"].get(k) for k in ("direct", "intermediate"))
     if no_tables:
         logger.error("R1: all retrieval rounds exhausted with no tables found for query %r — schema section will be empty", rag_query)
+
+    # SL2: attach business glossary hits so format_schema renders ## Business Definitions
+    context["glossary_hits"] = _get_business_context(rag_query, instance_name=instance_name)
 
     schema_str = PromptBuilder.format_schema(context)
     conversation_str = _format_conversation(conversation)
@@ -637,6 +658,8 @@ def gatherRequirements(messages: list, provider: str, model: str = None, instanc
     search_query = " ".join(user_texts[-3:]) if user_texts else ""
     try:
         context = getRelevantContext(search_query, instance_name=instance_name)
+        # SL2: attach glossary hits so the gather agent sees business term formulas
+        context["glossary_hits"] = _get_business_context(search_query, instance_name=instance_name)
         rag_schema_str = PromptBuilder.format_schema(context)
     except Exception as exc:
         logger.warning("RAG schema retrieval failed: %s", exc)
