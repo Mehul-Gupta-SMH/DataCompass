@@ -17,7 +17,6 @@ Coverage:
 
 import json
 import sqlite3
-from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -190,8 +189,8 @@ class TestUpdateTerm:
     def test_updated_at_changes(self):
         from MetadataManager.GlossaryStore import add_term, update_term, get_term
         tid = add_term(_sample_term())
-        original_ts = get_term(tid)["updated_at"]
-        import time; time.sleep(0.01)
+        import time
+        time.sleep(0.01)
         update_term(tid, {"domain": "new_domain"})
         new_ts = get_term(tid)["updated_at"]
         # Timestamps may be equal in fast runs — just check field exists

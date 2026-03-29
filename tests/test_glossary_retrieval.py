@@ -12,9 +12,8 @@ Coverage:
   - main._get_business_context integration (SL2 wiring)
 """
 
-import json
 import sqlite3
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 
